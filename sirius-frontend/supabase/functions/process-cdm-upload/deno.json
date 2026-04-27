@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "supabase": "jsr:@supabase/supabase-js@2",
+    "csv-parse/sync": "npm:csv-parse@5.5.6/sync"
+  }
+}

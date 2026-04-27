@@ -1,0 +1,129 @@
+{
+  "model_type": "forecasting",
+  "model_version": "forecasting_transformer_v1",
+  "feature_cols": [
+    "miss_distance",
+    "object1_cn_n",
+    "object1_cr_r",
+    "object1_ct_t",
+    "object1_hbr",
+    "object1_x",
+    "object1_x_dot",
+    "object1_y",
+    "object1_y_dot",
+    "object1_z",
+    "object1_z_dot",
+    "object2_cn_n",
+    "object2_cr_r",
+    "object2_ct_t",
+    "object2_hbr",
+    "object2_x",
+    "object2_x_dot",
+    "object2_y",
+    "object2_y_dot",
+    "object2_z",
+    "object2_z_dot",
+    "relative_position_n",
+    "relative_position_r",
+    "relative_position_t",
+    "relative_speed",
+    "relative_velocity_n",
+    "relative_velocity_r",
+    "relative_velocity_t",
+    "time_to_tca",
+    "collision_probability"
+  ],
+  "input_dim": 30,
+  "max_seq_len": 8,
+  "model_params": {
+    "d_model": 128,
+    "nhead": 4,
+    "num_layers": 2,
+    "dropout": 0.2
+  },
+  "random_state": 42,
+  "mc_dropout": {
+    "enabled": true,
+    "default_mc_passes": 50
+  },
+  "target_definition": {
+    "training_input": "CDM sequence shifted left: CDM1..CDM(n-1)",
+    "training_target": "next CDM at each real sequence position: CDM2..CDMn",
+    "runtime_prediction": "output at last real input position is interpreted as next unseen CDM P(n+1)"
+  },
+  "preprocessing": {
+    "sort_by": [
+      "event_id",
+      "creation_date"
+    ],
+    "time_to_tca": "computed as (tca - creation_date) in days",
+    "scaler": "sklearn.preprocessing.StandardScaler fitted on real training rows only",
+    "padding": "left padding with zeros; padded rows are masked",
+    "non_negative_fix_cols": [
+      "miss_distance",
+      "relative_speed",
+      "time_to_tca",
+      "collision_probability",
+      "object1_cn_n",
+      "object1_cr_r",
+      "object1_ct_t",
+      "object1_hbr",
+      "object2_cn_n",
+      "object2_cr_r",
+      "object2_ct_t",
+      "object2_hbr"
+    ],
+    "summary": {
+      "original_rows": 185511,
+      "processed_rows": 22418,
+      "dropped_rows": 163093,
+      "event_count": 8999,
+      "feature_count": 30,
+      "missing_expected_features": [
+        "time_to_tca"
+      ],
+      "feature_order": [
+        "miss_distance",
+        "object1_cn_n",
+        "object1_cr_r",
+        "object1_ct_t",
+        "object1_hbr",
+        "object1_x",
+        "object1_x_dot",
+        "object1_y",
+        "object1_y_dot",
+        "object1_z",
+        "object1_z_dot",
+        "object2_cn_n",
+        "object2_cr_r",
+        "object2_ct_t",
+        "object2_hbr",
+        "object2_x",
+        "object2_x_dot",
+        "object2_y",
+        "object2_y_dot",
+        "object2_z",
+        "object2_z_dot",
+        "relative_position_n",
+        "relative_position_r",
+        "relative_position_t",
+        "relative_speed",
+        "relative_velocity_n",
+        "relative_velocity_r",
+        "relative_velocity_t",
+        "time_to_tca",
+        "collision_probability"
+      ]
+    }
+  },
+  "metrics": {
+    "best_validation_mc_mse": 0.13734190414349237,
+    "final_test_mc_mse": 0.1378228505452474,
+    "final_test_mc_uncertainty_mean": 0.16490973432858785
+  },
+  "artifact_files": {
+    "model": "forecasting_model.pth",
+    "scaler": "forecasting_scaler.pkl",
+    "metadata": "forecasting_metadata.json"
+  }
+}

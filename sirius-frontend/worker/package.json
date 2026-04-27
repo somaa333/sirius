@@ -1,0 +1,25 @@
+{
+  "name": "sirius-cdm-worker",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Production CDM CSV import worker — streaming, bounded memory, progress + heartbeats.",
+  "scripts": {
+    "build": "tsc && node --input-type=module -e \"import { copyFileSync } from 'node:fs'; copyFileSync('src/cdmExpectedHeaders.json','dist/cdmExpectedHeaders.json')\"",
+    "start": "node --enable-source-maps dist/index.js",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "csv-parse": "^5.6.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

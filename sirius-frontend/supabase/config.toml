@@ -1,0 +1,19 @@
+# Supabase local / linked project configuration.
+# Docs: https://supabase.com/docs/guides/cli/config
+
+# Edge Functions: built-in JWT verification runs at the gateway before your handler.
+# If the browser sends a valid user JWT but you still get HTTP 401 before your code runs,
+# try disabling gateway verification and rely on manual auth inside the function
+# (createClient + Authorization header + auth.getUser()).
+
+[functions.validate-and-import-cdm]
+verify_jwt = false
+
+[functions.process-cdm-upload]
+verify_jwt = false
+
+[functions.process-cdm-upload-chunk]
+verify_jwt = false
+
+[edge_runtime]
+policy = "per_worker"

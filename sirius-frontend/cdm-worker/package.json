@@ -1,0 +1,15 @@
+{
+  "name": "sirius-cdm-worker",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Background worker: claims queued CDM uploads, streams CSV, validates, writes cdm_records / cdm_validation_errors.",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "csv-parse": "^5.6.0",
+    "dotenv": "^16.4.7"
+  }
+}

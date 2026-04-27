@@ -1,0 +1,113 @@
+.toast-stack {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.toast-item {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  border-radius: 14px;
+  padding: 12px 14px;
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: linear-gradient(
+    145deg,
+    rgba(17, 24, 39, 0.86),
+    rgba(12, 18, 32, 0.78)
+  );
+  backdrop-filter: blur(12px);
+  box-shadow:
+    0 16px 34px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(30, 41, 59, 0.45);
+  animation: toast-enter 260ms ease forwards;
+}
+
+.toast-item--success {
+  border-color: rgba(34, 197, 94, 0.4);
+  box-shadow:
+    0 16px 34px rgba(0, 0, 0, 0.42),
+    0 0 20px rgba(59, 130, 246, 0.24),
+    0 0 28px rgba(139, 92, 246, 0.2);
+}
+
+.toast-item--error {
+  border-color: rgba(248, 113, 113, 0.46);
+  box-shadow:
+    0 16px 34px rgba(0, 0, 0, 0.42),
+    0 0 18px rgba(239, 68, 68, 0.28);
+}
+
+.toast-item--info {
+  border-color: rgba(148, 163, 184, 0.34);
+}
+
+.toast-item--closing {
+  animation: toast-exit 220ms ease forwards;
+}
+
+.toast-item-text {
+  font-size: 0.88rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.toast-item-close {
+  border: 0;
+  color: #cbd5e1;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 8px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(30, 41, 59, 0.6);
+}
+
+.toast-item-close:hover {
+  color: #f8fafc;
+  background: rgba(51, 65, 85, 0.8);
+}
+
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateX(26px) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) translateY(0);
+  }
+}
+
+@keyframes toast-exit {
+  from {
+    opacity: 1;
+    transform: translateX(0) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+}
+
+@media (max-width: 640px) {
+  .toast-stack {
+    top: 14px;
+    right: 12px;
+    width: min(340px, calc(100vw - 24px));
+  }
+}

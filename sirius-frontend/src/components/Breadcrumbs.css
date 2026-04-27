@@ -1,0 +1,64 @@
+.breadcrumbs {
+  position: relative;
+  z-index: 10;
+  padding-top: 8px;
+  padding-bottom: 16px;
+}
+
+.breadcrumbs-list {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #9ca3af;
+}
+
+.breadcrumbs-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.breadcrumbs-separator {
+  color: #6b7280;
+}
+
+.breadcrumbs-link {
+  color: #e5e7eb;
+  text-decoration: none;
+}
+
+.breadcrumbs-link:hover {
+  text-decoration: underline;
+}
+
+.breadcrumbs-current {
+  color: #d1d5db;
+}
+
+/* Inside dashboard-shell: single horizontal inset (shell padding only) */
+.breadcrumbs-list--dashboard {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+@media (max-width: 640px) {
+  .breadcrumbs {
+    padding-top: 70px;
+  }
+
+  .breadcrumbs-list {
+    padding: 0 16px;
+    font-size: 0.78rem;
+  }
+
+  .breadcrumbs-list--dashboard {
+    padding: 0;
+  }
+}
+

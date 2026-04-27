@@ -1,0 +1,15 @@
+# frontend
+sirius-frontend/node_modules/
+sirius-frontend/dist/
+sirius-frontend/.env
+
+# backend
+ai-service/.env
+ai-service/__pycache__/
+ai-service/**/*.pyc
+
+# accidental root folders
+node_modules/
+dist/
+__pycache__/
+*.pyc
