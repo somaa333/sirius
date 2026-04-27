@@ -1,5 +1,9 @@
+fastapi
+uvicorn[standard]
+supabase
+python-dotenv
 pandas
 numpy
-scikit-learn
 torch
+scikit-learn
 joblib
