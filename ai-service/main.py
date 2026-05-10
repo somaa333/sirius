@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import logging
 import math
 import re
 import uuid
@@ -13,13 +14,15 @@ from supabase_client import supabase
 from classification_runtime import (
     classify_actual_event,
     explain_with_shap,
-    load_classification_model,
+    load_classification_model_cached,
     prepare_single_event_for_classification,
     _scale_sequence,
 )
 from prediction_runtime import predict_next_cdm
 
 CLASSIFICATION_ARTIFACTS_DIR = Path(__file__).resolve().parent / "classification_artifacts"
+
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI(title="SIRIUS AI Service")
@@ -94,19 +97,33 @@ def clamp_probability(value):
     return max(0.0, min(1.0, value))
 
 
+def _normalize_shap_report(report):
+    if isinstance(report, dict):
+        top = report.get("top_features")
+        if isinstance(top, list):
+            for item in top:
+                if not isinstance(item, dict):
+                    continue
+                mar = item.get("mean_abs_shap")
+                if mar is not None and item.get("abs_mean_shap") is None:
+                    item["abs_mean_shap"] = mar
+    return report
+
+
 def generate_shap_explanation(df_event):
     """
-    SHAP interpretability only; failures return None and must not affect classification.
+    SHAP interpretability only; failures return None.
+    Uses cached model weights and fast SHAP settings for on-demand generation.
     """
     bg_path = CLASSIFICATION_ARTIFACTS_DIR / "classification_shap_background.npy"
     if not bg_path.exists():
-        print(
+        logger.warning(
             "SHAP: classification_shap_background.npy not found under classification_artifacts; "
-            "using built-in fallback background."
+            "explain_with_shap will use the built-in fallback background."
         )
 
     try:
-        model, scaler, metadata = load_classification_model(CLASSIFICATION_ARTIFACTS_DIR)
+        model, scaler, metadata = load_classification_model_cached(CLASSIFICATION_ARTIFACTS_DIR)
         seq, mask, _processed_df, _target_row = prepare_single_event_for_classification(
             df_event,
             metadata,
@@ -119,21 +136,133 @@ def generate_shap_explanation(df_event):
             metadata=metadata,
             artifacts_dir=CLASSIFICATION_ARTIFACTS_DIR,
             max_display=10,
+            fast_mode=True,
+            max_background_rows=48,
         )
         report = to_python_types(shap_report)
-        if isinstance(report, dict):
-            top = report.get("top_features")
-            if isinstance(top, list):
-                for item in top:
-                    if not isinstance(item, dict):
-                        continue
-                    mar = item.get("mean_abs_shap")
-                    if mar is not None and item.get("abs_mean_shap") is None:
-                        item["abs_mean_shap"] = mar
-        return report
+        return _normalize_shap_report(report)
     except Exception as e:
-        print("SHAP explanation failed:", str(e))
+        logger.exception("SHAP explanation failed: %s", e)
         return None
+
+
+def _sort_cdms_by_creation_date(rows: list[dict]) -> list[dict]:
+    def sort_key(row: dict):
+        v = (row or {}).get("creation_date") or (row or {}).get("created_at")
+        if v is None:
+            return pd.Timestamp(0, tz="UTC")
+        try:
+            return pd.to_datetime(v, utc=True)
+        except Exception:
+            return pd.Timestamp(0, tz="UTC")
+
+    return sorted(rows or [], key=sort_key)
+
+
+def _fetch_cdm_records_by_ids(ids: list[str]) -> dict[str, dict]:
+    """Fetch cdm_records rows keyed by string id."""
+    ids = [i for i in {str(i).strip() for i in ids if i is not None and str(i).strip()}]
+    if not ids:
+        return {}
+    response = supabase.table("cdm_records").select("*").in_("id", ids).execute()
+    out: dict[str, dict] = {}
+    for row in response.data or []:
+        if isinstance(row, dict) and row.get("id") is not None:
+            out[str(row["id"])] = row
+    return out
+
+
+def _build_actual_event_dataframe_for_shap(assessment_uuid: str) -> pd.DataFrame:
+    lr = (
+        supabase.table("assessment_cdm_links")
+        .select("*")
+        .eq("assessment_id", assessment_uuid)
+        .execute()
+    )
+    links = lr.data or []
+    wanted_roles = {"input_history", "actual_target"}
+    link_rows = [l for l in links if isinstance(l, dict) and str(l.get("role") or "") in wanted_roles]
+    cdm_ids: list[str] = []
+    for link in link_rows:
+        cid = link.get("cdm_record_id") or link.get("cdm_id")
+        if cid is not None and str(cid).strip():
+            cdm_ids.append(str(cid).strip())
+
+    by_id = _fetch_cdm_records_by_ids(cdm_ids)
+    ordered: list[dict] = []
+    seen = set()
+    for lid in cdm_ids:
+        if lid in seen:
+            continue
+        seen.add(lid)
+        row = by_id.get(lid)
+        if row:
+            ordered.append(dict(row))
+
+    ordered = _sort_cdms_by_creation_date(ordered)
+    if not ordered:
+        raise ValueError("No CDM rows found for this assessment links")
+    return pd.DataFrame(ordered)
+
+
+def _build_predicted_full_event_dataframe_for_shap(
+    assessment_uuid: str,
+    assessment: dict,
+    user_id: str,
+) -> pd.DataFrame:
+    lr = (
+        supabase.table("assessment_cdm_links")
+        .select("*")
+        .eq("assessment_id", assessment_uuid)
+        .execute()
+    )
+    links = lr.data or []
+    link_rows = [
+        l for l in links if isinstance(l, dict) and str(l.get("role") or "") == "input_history"
+    ]
+    cdm_ids: list[str] = []
+    for link in link_rows:
+        cid = link.get("cdm_record_id") or link.get("cdm_id")
+        if cid is not None and str(cid).strip():
+            cdm_ids.append(str(cid).strip())
+
+    by_id = _fetch_cdm_records_by_ids(cdm_ids)
+    ordered: list[dict] = []
+    seen = set()
+    for lid in cdm_ids:
+        if lid in seen:
+            continue
+        seen.add(lid)
+        row = by_id.get(lid)
+        if row:
+            ordered.append(dict(row))
+
+    sorted_actuals = _sort_cdms_by_creation_date(ordered)
+    if not sorted_actuals:
+        raise ValueError("No input_history CDMs found for predicted assessment")
+
+    pred_id = assessment.get("predicted_cdm_record_id") or assessment.get("predictedCdmRecordId")
+    if not pred_id:
+        raise ValueError("Assessment has no predicted_cdm_record_id")
+
+    pred_resp = (
+        supabase.table("predicted_cdm_records")
+        .select("*")
+        .eq("id", str(pred_id))
+        .eq("created_by", user_id)
+        .execute()
+    )
+    pred_rows = pred_resp.data or []
+    if not pred_rows:
+        raise ValueError("Predicted CDM record not found or access denied")
+
+    predicted = dict(pred_rows[0])
+    last_actual = dict(sorted_actuals[-1])
+    merged = {**last_actual, **predicted}
+    merged["id"] = predicted.get("id")
+
+    full_rows = sorted_actuals + [merged]
+    return pd.DataFrame(full_rows)
 
 
 def require_user_id(x_user_id):
@@ -220,6 +349,92 @@ def health():
     return {"status": "ok"}
 
 
+@app.post("/assessments/{assessment_uuid}/generate-shap")
+def generate_assessment_shap(
+    assessment_uuid: str,
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+):
+    """
+    On-demand SHAP for an existing assessment (does not block main analyze flows).
+    """
+    user_id = require_user_id(x_user_id)
+    logger.info(
+        "SHAP generate-shap started assessment_uuid=%s user_id=%s",
+        assessment_uuid,
+        user_id,
+    )
+    try:
+        ar = (
+            supabase.table("risk_assessments")
+            .select("*")
+            .eq("id", assessment_uuid)
+            .eq("created_by", user_id)
+            .execute()
+        )
+        rows = ar.data or []
+        if not rows:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        assessment = rows[0]
+        analysis_type = str(assessment.get("analysis_type") or "").lower()
+
+        if analysis_type == "actual":
+            df_event = _build_actual_event_dataframe_for_shap(assessment_uuid)
+        elif analysis_type == "predicted":
+            df_event = _build_predicted_full_event_dataframe_for_shap(
+                assessment_uuid,
+                assessment,
+                user_id,
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported analysis_type for SHAP generation",
+            )
+
+        report = generate_shap_explanation(df_event)
+        if report is None:
+            logger.error(
+                "SHAP generate-shap produced no report assessment_uuid=%s",
+                assessment_uuid,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="SHAP explanation could not be computed for this assessment.",
+            )
+
+        supabase.table("risk_assessments").update({"shap_output": report}).eq(
+            "id", assessment_uuid
+        ).eq("created_by", user_id).execute()
+
+        logger.info(
+            "SHAP generate-shap finished assessment_uuid=%s",
+            assessment_uuid,
+        )
+        return {"shap_output": report}
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.exception(
+            "SHAP generate-shap reconstruction failed assessment_uuid=%s",
+            assessment_uuid,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot reconstruct event data for SHAP: {str(e)}",
+        ) from e
+    except Exception as e:
+        logger.exception(
+            "SHAP generate-shap failed assessment_uuid=%s",
+            assessment_uuid,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate SHAP explanation: {str(e)}",
+        ) from e
+
+
 @app.get("/events/{event_id}/cdms")
 def get_event_cdms(
     event_id: str,
@@ -271,8 +486,6 @@ def analyze_actual_event(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Classification failed: {str(e)}")
 
-    shap_output = generate_shap_explanation(df_event)
-
     target_actual_cdm_id = result.get("target_actual_cdm_id")
 
     if not target_actual_cdm_id:
@@ -301,7 +514,7 @@ def analyze_actual_event(
             "target_actual_cdm_id": target_actual_cdm_id,
             "classification_model_version": "v1",
             "classification_output": result,
-            "shap_output": shap_output,
+            "shap_output": None,
             "created_by": user_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -506,8 +719,6 @@ def analyze_predicted_event(
             detail=f"Classification on predicted CDM failed: {str(e)}",
         )
 
-    shap_output = generate_shap_explanation(df_full_event)
-
     assessment_payload = to_python_types(
         {
             "id": assessment_uuid,
@@ -528,7 +739,7 @@ def analyze_predicted_event(
             "classification_model_version": "v1",
             "prediction_output": pred_result,
             "classification_output": class_result,
-            "shap_output": shap_output,
+            "shap_output": None,
             "created_by": user_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }

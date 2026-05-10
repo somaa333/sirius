@@ -23,6 +23,7 @@ import {
   getShapOutput,
 } from "../data/analysisData.js";
 import { formatUtc } from "../data/cdmEventData.js";
+import { generateAssessmentShap } from "../services/analysisApi.js";
 import "./AnalysisDetailsPage.css";
 
 const TAB_OVERVIEW = "overview";
@@ -360,6 +361,8 @@ export default function AnalysisDetailsPage() {
   const [selectedCdmIdx, setSelectedCdmIdx] = useState(0);
   const [uncertaintyMode, setUncertaintyMode] = useState("std");
   const [shapExpanded, setShapExpanded] = useState(false);
+  const [shapGenerating, setShapGenerating] = useState(false);
+  const [shapGenError, setShapGenError] = useState(false);
 
   const idParam = assessmentId ? decodeURIComponent(assessmentId) : "";
   const routeLooksLikeDisplayAssessmentId = /^RA[\w-]+$/i.test(idParam);
@@ -424,6 +427,7 @@ export default function AnalysisDetailsPage() {
 
   useEffect(() => {
     setShapExpanded(false);
+    setShapGenError(false);
   }, [idParam]);
 
   const assessmentIdText = useMemo(
@@ -474,6 +478,13 @@ export default function AnalysisDetailsPage() {
     }
     return m || 1;
   }, [shapRowsVisible]);
+
+  const assessmentPk = useMemo(
+    () => getAssessmentPrimaryKey(assessment ?? {}) ?? "",
+    [assessment],
+  );
+
+  const hasShapFeatures = shapTopFeatures.length > 0;
 
   const uncertaintyStd =
     asNumber(getObj(classificationOutput, "uncertainty_std")) ??
@@ -719,9 +730,7 @@ export default function AnalysisDetailsPage() {
                   <p className="analysis2-shap-lede">
                     SHAP highlights which input features had the strongest influence on this classification.
                   </p>
-                  {!shapOutput || shapTopFeatures.length === 0 ? (
-                    <p className="analysis2-muted">No explanation data is available for this assessment.</p>
-                  ) : (
+                  {hasShapFeatures ? (
                     <>
                       <ul className="analysis2-shap-list">
                         {shapRowsVisible.map((raw, idx) => {
@@ -771,6 +780,41 @@ export default function AnalysisDetailsPage() {
                         </button>
                       ) : null}
                     </>
+                  ) : (
+                    <div className="analysis2-shap-empty">
+                      {shapGenError ? (
+                        <p className="analysis2-error" role="alert">
+                          Explanation could not be generated for this assessment.
+                        </p>
+                      ) : (
+                        <p className="analysis2-muted">
+                          No explanation data is available yet.
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        className="analysis2-btn analysis2-shap-generate"
+                        disabled={shapGenerating || !assessmentPk || !user?.id}
+                        onClick={async () => {
+                          if (!user?.id || !assessmentPk) return;
+                          setShapGenError(false);
+                          setShapGenerating(true);
+                          try {
+                            const out = await generateAssessmentShap(assessmentPk, user.id);
+                            const nextShap = out && typeof out === "object" ? out.shap_output : null;
+                            setAssessment((prev) =>
+                              prev ? { ...prev, shap_output: nextShap ?? null } : prev,
+                            );
+                          } catch {
+                            setShapGenError(true);
+                          } finally {
+                            setShapGenerating(false);
+                          }
+                        }}
+                      >
+                        {shapGenerating ? "Generating…" : "Generate Explanation"}
+                      </button>
+                    </div>
                   )}
                 </article>
               </div>

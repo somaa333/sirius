@@ -621,3 +621,19 @@
   border-color: rgba(167, 139, 250, 0.45);
   color: #e9d5ff;
 }
+
+.analysis2-shap-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.analysis2-shap-generate {
+  margin-top: 0;
+}
+
+.analysis2-shap-generate:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

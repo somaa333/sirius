@@ -73,3 +73,37 @@ export async function runPredictedAnalysis(eventId, userId) {
   }
   return res.json();
 }
+
+/**
+ * On-demand SHAP for an assessment (FastAPI UUID primary key).
+ * @param {string} assessmentUuid
+ * @param {string} userId
+ * @returns {Promise<{ shap_output?: unknown }>}
+ */
+export async function generateAssessmentShap(assessmentUuid, userId) {
+  if (!userId) {
+    throw new Error("Missing user id for SHAP request.");
+  }
+  const id = String(assessmentUuid ?? "").trim();
+  if (!id) {
+    throw new Error("Missing assessment id for SHAP request.");
+  }
+  const base = getAiApiBaseUrl();
+  const url = `${base}/assessments/${encodeURIComponent(id)}/generate-shap`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "x-user-id": userId,
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      text?.trim()
+        ? `SHAP generation failed (${res.status}): ${text}`
+        : `SHAP generation failed (${res.status} ${res.statusText})`,
+    );
+  }
+  return res.json();
+}

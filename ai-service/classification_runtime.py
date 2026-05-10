@@ -103,6 +103,9 @@ def _default_artifacts_dir() -> Path:
     return Path(__file__).resolve().parent / "classification_artifacts"
 
 
+_classification_bundle_cache: dict[str, tuple] = {}
+
+
 def load_classification_model(artifacts_dir: str | Path | None = None):
     artifacts_dir = Path(artifacts_dir) if artifacts_dir else _default_artifacts_dir()
 
@@ -137,6 +140,15 @@ def load_classification_model(artifacts_dir: str | Path | None = None):
     model.eval()
 
     return model, scaler, metadata
+
+
+def load_classification_model_cached(artifacts_dir: str | Path | None = None):
+    """Module-level cache so SHAP / repeated inference does not reload weights each call."""
+    artifacts_dir = Path(artifacts_dir) if artifacts_dir else _default_artifacts_dir()
+    key = str(artifacts_dir.resolve())
+    if key not in _classification_bundle_cache:
+        _classification_bundle_cache[key] = load_classification_model(artifacts_dir)
+    return _classification_bundle_cache[key]
 
 
 def _to_dataframe(event_data: Any) -> pd.DataFrame:
@@ -262,6 +274,8 @@ def explain_with_shap(
     metadata: dict,
     artifacts_dir: str | Path | None = None,
     max_display: int = 20,
+    fast_mode: bool = False,
+    max_background_rows: int = 48,
 ) -> dict:
     """
     Optional SHAP explanation for one event.
@@ -290,8 +304,13 @@ def explain_with_shap(
     background_path = artifacts_dir / "classification_shap_background.npy"
     if background_path.exists():
         background_np = np.load(background_path).astype(np.float32)
+        if fast_mode and background_np.shape[0] > int(max_background_rows):
+            background_np = np.ascontiguousarray(background_np[: int(max_background_rows)])
     else:
-        background_np = np.repeat(seq_scaled[None, ...], repeats=10, axis=0).astype(np.float32)
+        fb_repeats = 4 if fast_mode else 10
+        background_np = np.repeat(seq_scaled[None, ...], repeats=fb_repeats, axis=0).astype(
+            np.float32
+        )
 
     wrapped_model = SequentialWrapper(model).eval()
 
@@ -327,6 +346,8 @@ def explain_with_shap(
     return {
         "method": "shap_gradient_explainer",
         "max_display": int(max_display),
+        "fast_mode": bool(fast_mode),
+        "background_rows_used": int(background_np.shape[0]),
         "background_source": "classification_shap_background.npy"
         if background_path.exists()
         else "current_event_fallback",
