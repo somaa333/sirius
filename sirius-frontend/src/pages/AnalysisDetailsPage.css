@@ -489,3 +489,135 @@
     text-align: left;
   }
 }
+
+.analysis2-grid-2 .analysis2-shap-card {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}
+
+.analysis2-shap-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.analysis2-shap-title-row h3 {
+  margin: 0;
+}
+
+.analysis2-shap-info {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.85);
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: help;
+  line-height: 1;
+  padding: 0;
+}
+
+.analysis2-shap-lede {
+  margin: 0 0 14px;
+  color: rgba(148, 163, 184, 0.95);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.analysis2-shap-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.analysis2-shap-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.analysis2-shap-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.86rem;
+  color: #e2e8f0;
+}
+
+.analysis2-shap-rank {
+  color: #64748b;
+  font-weight: 700;
+  min-width: 1.5rem;
+}
+
+.analysis2-shap-name {
+  font-weight: 600;
+}
+
+.analysis2-shap-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  overflow: hidden;
+}
+
+.analysis2-shap-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.analysis2-shap-bar-high span {
+  background: linear-gradient(90deg, rgba(251, 146, 60, 0.35), rgba(248, 113, 113, 0.85));
+}
+
+.analysis2-shap-bar-low span {
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.45), rgba(52, 211, 153, 0.75));
+}
+
+.analysis2-shap-bar-neutral span {
+  background: rgba(100, 116, 139, 0.55);
+}
+
+.analysis2-shap-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.analysis2-shap-meta strong {
+  color: #f1f5f9;
+  font-weight: 600;
+}
+
+.analysis2-shap-dir {
+  color: #cbd5e1;
+}
+
+.analysis2-shap-expand {
+  margin-top: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 9px;
+  background: rgba(15, 23, 42, 0.75);
+  color: #c4b5fd;
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.analysis2-shap-expand:hover {
+  border-color: rgba(167, 139, 250, 0.45);
+  color: #e9d5ff;
+}

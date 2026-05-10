@@ -20,8 +20,9 @@ import {
   getPredictionOutput,
   getClassificationOutput,
   getPredictedCdmRecordId,
+  getShapOutput,
 } from "../data/analysisData.js";
-import { formatUtc, formatProbability } from "../data/cdmEventData.js";
+import { formatUtc } from "../data/cdmEventData.js";
 import "./AnalysisDetailsPage.css";
 
 const TAB_OVERVIEW = "overview";
@@ -183,6 +184,63 @@ function formatSpeedKmS(v) {
   return `${n.toLocaleString(undefined, { maximumFractionDigits: 6 })} km/s`;
 }
 
+const SHAP_FEATURE_LABELS = {
+  miss_distance: "Miss Distance",
+  collision_probability: "Collision Probability",
+  relative_speed: "Relative Speed",
+  object1_x_dot: "Object 1 X Velocity",
+};
+
+/**
+ * @param {string} featureKey
+ */
+function formatShapFeatureLabel(featureKey) {
+  if (SHAP_FEATURE_LABELS[featureKey]) return SHAP_FEATURE_LABELS[featureKey];
+  const od = /^object(\d+)_(x|y|z)_dot$/.exec(featureKey);
+  if (od) {
+    const axis = od[2].toUpperCase();
+    return `Object ${od[1]} ${axis} Velocity`;
+  }
+  return featureKey
+    .split("_")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
+/**
+ * @param {Record<string, unknown>} item
+ */
+function getShapAbsStrength(item) {
+  const a = item.abs_mean_shap ?? item.mean_abs_shap;
+  const an = Number(a);
+  if (Number.isFinite(an)) return Math.abs(an);
+  const s = Number(item.signed_mean_shap);
+  if (Number.isFinite(s)) return Math.abs(s);
+  return 0;
+}
+
+/**
+ * @param {unknown} signed
+ */
+function formatShapImpactSigned(signed) {
+  const n = Number(signed);
+  if (!Number.isFinite(n)) return "—";
+  const prefix = n >= 0 ? "+" : "";
+  return `${prefix}${n.toFixed(3)}`;
+}
+
+/**
+ * @param {unknown} signed
+ */
+function getShapDirectionLabel(signed) {
+  const n = Number(signed);
+  if (!Number.isFinite(n)) return "—";
+  if (n > 0) return "Pushed toward High Risk";
+  if (n < 0) return "Pushed toward Low Risk";
+  return "Neutral impact";
+}
+
 function formatGenericValue(key, value) {
   if (value == null || value === "") return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
@@ -301,6 +359,7 @@ export default function AnalysisDetailsPage() {
   const [tab, setTab] = useState(TAB_OVERVIEW);
   const [selectedCdmIdx, setSelectedCdmIdx] = useState(0);
   const [uncertaintyMode, setUncertaintyMode] = useState("std");
+  const [shapExpanded, setShapExpanded] = useState(false);
 
   const idParam = assessmentId ? decodeURIComponent(assessmentId) : "";
   const routeLooksLikeDisplayAssessmentId = /^RA[\w-]+$/i.test(idParam);
@@ -363,6 +422,10 @@ export default function AnalysisDetailsPage() {
     };
   }, [user, idParam]);
 
+  useEffect(() => {
+    setShapExpanded(false);
+  }, [idParam]);
+
   const assessmentIdText = useMemo(
     () => getAssessmentRowId(assessment ?? {}) ?? getAssessmentPrimaryKey(assessment ?? {}) ?? "",
     [assessment],
@@ -392,6 +455,25 @@ export default function AnalysisDetailsPage() {
   const classProb = getClassificationProbability(assessment ?? {});
   const classificationOutput = parseMaybeJson(getClassificationOutput(assessment ?? {}));
   const predictionOutput = parseMaybeJson(getPredictionOutput(assessment ?? {}));
+  const shapOutput = getShapOutput(assessment ?? {});
+  const shapTopFeatures = useMemo(() => {
+    const raw = shapOutput && typeof shapOutput === "object" ? shapOutput.top_features : null;
+    return Array.isArray(raw) ? raw : [];
+  }, [shapOutput]);
+
+  const shapRowsVisible = useMemo(() => {
+    if (!shapTopFeatures.length) return [];
+    return shapExpanded ? shapTopFeatures : shapTopFeatures.slice(0, 3);
+  }, [shapTopFeatures, shapExpanded]);
+
+  const shapBarMax = useMemo(() => {
+    let m = 0;
+    for (const item of shapRowsVisible) {
+      const v = getShapAbsStrength(/** @type {Record<string, unknown>} */ (item));
+      if (v > m) m = v;
+    }
+    return m || 1;
+  }, [shapRowsVisible]);
 
   const uncertaintyStd =
     asNumber(getObj(classificationOutput, "uncertainty_std")) ??
@@ -620,6 +702,76 @@ export default function AnalysisDetailsPage() {
                       },
                     ]}
                   />
+                </article>
+
+                <article className="analysis2-block analysis2-shap-card">
+                  <div className="analysis2-shap-title-row">
+                    <h3>Decision Explanation</h3>
+                    <button
+                      type="button"
+                      className="analysis2-shap-info"
+                      aria-label="SHAP impact sign help"
+                      title="Positive impact pushes the model toward High Risk. Negative impact pushes it toward Low Risk."
+                    >
+                      ?
+                    </button>
+                  </div>
+                  <p className="analysis2-shap-lede">
+                    SHAP highlights which input features had the strongest influence on this classification.
+                  </p>
+                  {!shapOutput || shapTopFeatures.length === 0 ? (
+                    <p className="analysis2-muted">No explanation data is available for this assessment.</p>
+                  ) : (
+                    <>
+                      <ul className="analysis2-shap-list">
+                        {shapRowsVisible.map((raw, idx) => {
+                          const item = /** @type {Record<string, unknown>} */ (raw);
+                          const fname = String(item.feature ?? "");
+                          const signed = Number(item.signed_mean_shap);
+                          const strength = getShapAbsStrength(item);
+                          const pct = shapBarMax > 0 ? Math.min(100, (strength / shapBarMax) * 100) : 0;
+                          const barTone =
+                            !Number.isFinite(signed) || signed === 0
+                              ? "neutral"
+                              : signed > 0
+                                ? "high"
+                                : "low";
+                          return (
+                            <li key={`${fname}-${idx}`} className="analysis2-shap-item">
+                              <div className="analysis2-shap-item-head">
+                                <span className="analysis2-shap-rank">{idx + 1}.</span>
+                                <span className="analysis2-shap-name" title={fname || undefined}>
+                                  {formatShapFeatureLabel(fname)}
+                                </span>
+                              </div>
+                              <div
+                                className={`analysis2-shap-bar analysis2-shap-bar-${barTone}`}
+                                aria-hidden
+                              >
+                                <span style={{ width: `${pct}%` }} />
+                              </div>
+                              <div className="analysis2-shap-meta">
+                                <span>
+                                  Impact:{" "}
+                                  <strong>{formatShapImpactSigned(item.signed_mean_shap)}</strong>
+                                </span>
+                                <span className="analysis2-shap-dir">{getShapDirectionLabel(signed)}</span>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      {shapTopFeatures.length > 3 ? (
+                        <button
+                          type="button"
+                          className="analysis2-shap-expand"
+                          onClick={() => setShapExpanded((v) => !v)}
+                        >
+                          {shapExpanded ? "Show top 3 features" : "Show top 10 features"}
+                        </button>
+                      ) : null}
+                    </>
+                  )}
                 </article>
               </div>
             </section>
@@ -916,6 +1068,7 @@ export default function AnalysisDetailsPage() {
           {tab === TAB_RAW ? (
             <section className="analysis2-panel">
               <JsonViewer title="Assessment raw object" data={assessment} />
+              <JsonViewer title="SHAP Output" data={shapOutput} />
               <JsonViewer title="Classification output raw JSON" data={classificationOutput} />
               {isPredicted ? <JsonViewer title="Prediction output raw JSON" data={predictionOutput} /> : null}
               {isPredicted ? <JsonViewer title="Predicted CDM raw object" data={predictedRow} /> : null}

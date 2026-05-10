@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 import math
 import re
 import uuid
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -9,8 +10,16 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from supabase_client import supabase
-from classification_runtime import classify_actual_event
+from classification_runtime import (
+    classify_actual_event,
+    explain_with_shap,
+    load_classification_model,
+    prepare_single_event_for_classification,
+    _scale_sequence,
+)
 from prediction_runtime import predict_next_cdm
+
+CLASSIFICATION_ARTIFACTS_DIR = Path(__file__).resolve().parent / "classification_artifacts"
 
 
 app = FastAPI(title="SIRIUS AI Service")
@@ -83,6 +92,48 @@ def clamp_probability(value):
         return None
 
     return max(0.0, min(1.0, value))
+
+
+def generate_shap_explanation(df_event):
+    """
+    SHAP interpretability only; failures return None and must not affect classification.
+    """
+    bg_path = CLASSIFICATION_ARTIFACTS_DIR / "classification_shap_background.npy"
+    if not bg_path.exists():
+        print(
+            "SHAP: classification_shap_background.npy not found under classification_artifacts; "
+            "using built-in fallback background."
+        )
+
+    try:
+        model, scaler, metadata = load_classification_model(CLASSIFICATION_ARTIFACTS_DIR)
+        seq, mask, _processed_df, _target_row = prepare_single_event_for_classification(
+            df_event,
+            metadata,
+        )
+        seq_scaled = _scale_sequence(seq, mask, scaler)
+
+        shap_report = explain_with_shap(
+            model=model,
+            seq_scaled=seq_scaled,
+            metadata=metadata,
+            artifacts_dir=CLASSIFICATION_ARTIFACTS_DIR,
+            max_display=10,
+        )
+        report = to_python_types(shap_report)
+        if isinstance(report, dict):
+            top = report.get("top_features")
+            if isinstance(top, list):
+                for item in top:
+                    if not isinstance(item, dict):
+                        continue
+                    mar = item.get("mean_abs_shap")
+                    if mar is not None and item.get("abs_mean_shap") is None:
+                        item["abs_mean_shap"] = mar
+        return report
+    except Exception as e:
+        print("SHAP explanation failed:", str(e))
+        return None
 
 
 def require_user_id(x_user_id):
@@ -220,6 +271,8 @@ def analyze_actual_event(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Classification failed: {str(e)}")
 
+    shap_output = generate_shap_explanation(df_event)
+
     target_actual_cdm_id = result.get("target_actual_cdm_id")
 
     if not target_actual_cdm_id:
@@ -248,6 +301,7 @@ def analyze_actual_event(
             "target_actual_cdm_id": target_actual_cdm_id,
             "classification_model_version": "v1",
             "classification_output": result,
+            "shap_output": shap_output,
             "created_by": user_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -452,6 +506,8 @@ def analyze_predicted_event(
             detail=f"Classification on predicted CDM failed: {str(e)}",
         )
 
+    shap_output = generate_shap_explanation(df_full_event)
+
     assessment_payload = to_python_types(
         {
             "id": assessment_uuid,
@@ -472,6 +528,7 @@ def analyze_predicted_event(
             "classification_model_version": "v1",
             "prediction_output": pred_result,
             "classification_output": class_result,
+            "shap_output": shap_output,
             "created_by": user_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }

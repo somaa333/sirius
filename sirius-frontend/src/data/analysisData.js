@@ -147,6 +147,27 @@ export function getClassificationOutput(row) {
 }
 
 /**
+ * Parsed SHAP explanation payload (may be null for older assessments).
+ * @param {Record<string, unknown>} row
+ * @returns {Record<string, unknown> | null}
+ */
+export function getShapOutput(row) {
+  const raw = row.shap_output ?? row.shapOutput;
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    try {
+      return /** @type {Record<string, unknown>} */ (JSON.parse(raw));
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === "object") {
+    return /** @type {Record<string, unknown>} */ (raw);
+  }
+  return null;
+}
+
+/**
  * @param {Record<string, unknown>} row
  */
 export function getPredictedCdmRecordId(row) {

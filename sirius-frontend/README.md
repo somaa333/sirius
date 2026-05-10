@@ -1,16 +1,66 @@
-# React + Vite
+# SIRIUS (Frontend)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Web client for **SIRIUS** — a space/CDM risk analysis experience built with **React**, **Vite**, and **Supabase**. The Analysis feature calls an external **FastAPI** service for model runs.
 
-Currently, two official plugins are available:
+## Tech stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **React 19** + **React Router**
+- **Vite 7**
+- **Supabase JS** (auth + Postgres/realtime as configured)
+- **Lucide React**, **Recharts**, **jsPDF** (reports), **Framer Motion** / **GSAP** (selected UI)
 
-## React Compiler
+## Prerequisites
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Node.js** (LTS recommended)
+- **npm**
+- A **Supabase** project (URL + anon/publishable key)
+- **FastAPI** analysis API URL (for `/analysis`)
 
-## Expanding the ESLint configuration
+## Setup
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+1. Clone the repo and enter this directory:
+
+   ```bash
+   cd sirius-frontend
+   ```
+
+2. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+3. Environment variables — copy the example file and fill in values:
+
+   ```bash
+   copy .env.example .env
+   ```
+
+   Required variables (see `.env.example`):
+
+   | Variable | Purpose |
+   |----------|---------|
+   | `VITE_SUPABASE_URL` | Supabase project URL |
+   | `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase anon/public client key |
+   | `VITE_AI_API_BASE_URL` | Base URL for FastAPI (no trailing slash required in code) |
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start Vite dev server (HMR) |
+| `npm run build` | Production build to `dist/` |
+| `npm run preview` | Preview production build locally |
+| `npm run lint` | ESLint |
+
+Optional workspace scripts (see `package.json`): `worker:*` for the CDM worker package under `worker/`.
+
+## Documentation
+
+- **[PROJECT_STRUCTURE.md](./PROJECT_STRUCTURE.md)** — folder layout and responsibilities
+- **[FRONTEND_ARCHITECTURE.md](./FRONTEND_ARCHITECTURE.md)** — routing, auth, Supabase, and major modules
+
+## Related packages in this repo
+
+- `worker/` — CDM processing worker (separate Node app)
+- `supabase/functions/` — Edge functions (deployed via Supabase CLI)

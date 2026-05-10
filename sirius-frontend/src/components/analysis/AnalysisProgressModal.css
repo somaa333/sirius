@@ -1,0 +1,101 @@
+.analysis-progress-backdrop {
+  z-index: 120;
+  align-items: center;
+  padding: 24px 16px;
+}
+
+.analysis-progress-modal.dash-modal {
+  width: min(520px, 100%);
+  max-height: min(90vh, 640px);
+  overflow: visible;
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+  animation: analysis-progress-modal-in 0.3s ease-out;
+}
+
+@keyframes analysis-progress-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.analysis-progress-modal__hero {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.analysis-progress-modal__progress {
+  flex: 1;
+  min-width: 0;
+}
+
+.analysis-progress-spinner {
+  flex-shrink: 0;
+  margin-top: 4px;
+  color: rgba(167, 139, 250, 0.95);
+  animation: analysis-progress-spin 0.85s linear infinite;
+}
+
+@keyframes analysis-progress-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.analysis-progress-icon--success {
+  flex-shrink: 0;
+  margin-top: 4px;
+  color: #6ee7b7;
+}
+
+.analysis-progress-icon--error {
+  flex-shrink: 0;
+  margin-top: 4px;
+  color: #fca5a5;
+}
+
+.analysis-progress-step-msg {
+  margin: 6px 0 0;
+  color: rgba(148, 163, 184, 0.98);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.analysis-progress-hint {
+  margin: 14px 0 0;
+  font-size: 0.78rem;
+  color: rgba(148, 163, 184, 0.88);
+  line-height: 1.4;
+}
+
+.analysis-progress-modal__footer {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.analysis-progress-detail {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+  color: #e2e8f0;
+}
+
+.analysis-progress-error {
+  margin: 0 0 12px;
+  font-size: 0.88rem;
+  color: #fecaca;
+  line-height: 1.45;
+}
+
+.analysis-progress-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}

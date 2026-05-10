@@ -21,6 +21,8 @@ import {
   getRecommendedDecision,
 } from "../data/analysisData.js";
 import { formatUtc } from "../data/cdmEventData.js";
+import AnalysisProgressModal from "../components/analysis/AnalysisProgressModal.jsx";
+import { ANALYSIS_SIMULATED_CAP } from "../constants/analysisProgress.js";
 import "./AnalysisPage.css";
 import "../components/dashboard/DashboardComponents.css";
 
@@ -124,9 +126,22 @@ export default function AnalysisPage() {
   );
   const menuRef = useRef(/** @type {HTMLDivElement | null} */ (null));
   const selectAllAssessmentsRef = useRef(/** @type {HTMLInputElement | null} */ (null));
+  const analysisSimRafRef = useRef(/** @type {number | null} */ (null));
 
-  const [runBusy, setRunBusy] = useState(false);
+  /** Smooth simulated progress (see `ANALYSIS_SIMULATED_CAP`) while the FastAPI request is in flight; set to 100 on success. */
+  const [analysisSimPercent, setAnalysisSimPercent] = useState(0);
+
+  /** @type {'idle' | 'running' | 'success' | 'error'} */
+  const [analysisModalPhase, setAnalysisModalPhase] = useState("idle");
+  const [analysisResultAssessmentId, setAnalysisResultAssessmentId] = useState(
+    /** @type {string | null} */ (null),
+  );
+  const [analysisErrorMessage, setAnalysisErrorMessage] = useState(
+    /** @type {string | null} */ (null),
+  );
   const [eventPage, setEventPage] = useState(1);
+
+  const analysisRunning = analysisModalPhase === "running";
 
   const loadEvents = useCallback(async () => {
     if (!user?.id) return;
@@ -188,6 +203,46 @@ export default function AnalysisPage() {
     document.addEventListener("mousedown", onMouseDown);
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, [path]);
+
+  useEffect(() => {
+    if (analysisModalPhase === "idle") return;
+    const onKey = (e) => {
+      if (e.key === "Escape" && analysisModalPhase !== "running") {
+        setAnalysisModalPhase("idle");
+        setAnalysisResultAssessmentId(null);
+        setAnalysisErrorMessage(null);
+        setAnalysisSimPercent(0);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [analysisModalPhase]);
+
+  /** Simulate intermediate progress toward the simulated cap while waiting for the analysis API (single long request). */
+  useEffect(() => {
+    if (analysisModalPhase !== "running") {
+      if (analysisSimRafRef.current != null) {
+        cancelAnimationFrame(analysisSimRafRef.current);
+        analysisSimRafRef.current = null;
+      }
+      return;
+    }
+    const tick = () => {
+      setAnalysisSimPercent((p) => {
+        const cap = ANALYSIS_SIMULATED_CAP;
+        if (p >= cap) return cap;
+        return Math.min(cap, p + Math.max(0.12, (cap - p) * 0.016));
+      });
+      analysisSimRafRef.current = requestAnimationFrame(tick);
+    };
+    analysisSimRafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (analysisSimRafRef.current != null) {
+        cancelAnimationFrame(analysisSimRafRef.current);
+        analysisSimRafRef.current = null;
+      }
+    };
+  }, [analysisModalPhase]);
 
   const pathFilteredEvents = useMemo(() => {
     if (!path) return [];
@@ -455,30 +510,39 @@ export default function AnalysisPage() {
     }
   };
 
+  const handleCloseAnalysisModal = () => {
+    setAnalysisModalPhase("idle");
+    setAnalysisResultAssessmentId(null);
+    setAnalysisErrorMessage(null);
+    setAnalysisSimPercent(0);
+  };
+
   const handleRunAnalysis = async () => {
-    if (!path || !selectedEventId || runBusy) return;
-    setRunBusy(true);
+    if (!path || !selectedEventId || analysisRunning) return;
+    setAnalysisSimPercent(0);
+    setAnalysisModalPhase("running");
+    setAnalysisResultAssessmentId(null);
+    setAnalysisErrorMessage(null);
     try {
       let runResult = null;
       if (path === "actual") {
         runResult = await runActualAnalysis(selectedEventId, user.id);
-        pushToast("Actual analysis completed.", "success");
       } else {
         runResult = await runPredictedAnalysis(selectedEventId, user.id);
-        pushToast("Predicted analysis completed.", "success");
       }
       await loadAssessments();
       await loadEvents();
 
       const detailsId = getAssessmentDetailsIdFromRunResult(runResult);
-      if (detailsId) {
-        navigate(`/analysis/${encodeURIComponent(detailsId)}`);
-      }
+      setAnalysisResultAssessmentId(detailsId);
+      setAnalysisSimPercent(100);
+      setAnalysisModalPhase("success");
+      pushToast("Analysis completed successfully.", "success");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      setAnalysisErrorMessage(msg);
+      setAnalysisModalPhase("error");
       pushToast(msg, "error");
-    } finally {
-      setRunBusy(false);
     }
   };
 
@@ -492,6 +556,19 @@ export default function AnalysisPage() {
     <DashboardPageLayout
       title="Analysis"
     >
+      {analysisModalPhase !== "idle" ? (
+        <AnalysisProgressModal
+          phase={analysisModalPhase}
+          variant={path === "predicted" ? "predicted" : "actual"}
+          eventId={selectedEventId}
+          assessmentId={analysisResultAssessmentId}
+          errorMessage={analysisErrorMessage}
+          simulatedPercent={analysisSimPercent}
+          onClose={handleCloseAnalysisModal}
+          onRetry={() => void handleRunAnalysis()}
+        />
+      ) : null}
+
       <section
         className="analysis-selection-zone"
         aria-label="Choose analysis path"
@@ -501,7 +578,9 @@ export default function AnalysisPage() {
         <button
           type="button"
           className={`analysis-path-card ${path === "actual" ? "analysis-path-card--active" : ""}`}
+          disabled={analysisRunning}
           onClick={() => {
+            if (analysisRunning) return;
             setPath("actual");
             setSelectedEventId("");
             setCdmFilterMode("range");
@@ -528,7 +607,9 @@ export default function AnalysisPage() {
         <button
           type="button"
           className={`analysis-path-card ${path === "predicted" ? "analysis-path-card--active" : ""}`}
+          disabled={analysisRunning}
           onClick={() => {
+            if (analysisRunning) return;
             setPath("predicted");
             setSelectedEventId("");
             setCdmFilterMode("range");
@@ -573,6 +654,7 @@ export default function AnalysisPage() {
                 className="analysis-input"
                 placeholder="Filter by event id…"
                 value={eventSearch}
+                disabled={analysisRunning}
                 onChange={(e) => setEventSearch(e.target.value)}
               />
             </label>
@@ -584,7 +666,10 @@ export default function AnalysisPage() {
                   className={`analysis-segment-btn ${cdmFilterMode === "range" ? "is-active" : ""}`}
                   role="radio"
                   aria-checked={cdmFilterMode === "range"}
-                  onClick={() => setCdmFilterMode("range")}
+                  disabled={analysisRunning}
+                  onClick={() => {
+                    if (!analysisRunning) setCdmFilterMode("range");
+                  }}
                 >
                   Range
                 </button>
@@ -593,7 +678,10 @@ export default function AnalysisPage() {
                   className={`analysis-segment-btn ${cdmFilterMode === "exact" ? "is-active" : ""}`}
                   role="radio"
                   aria-checked={cdmFilterMode === "exact"}
-                  onClick={() => setCdmFilterMode("exact")}
+                  disabled={analysisRunning}
+                  onClick={() => {
+                    if (!analysisRunning) setCdmFilterMode("exact");
+                  }}
                 >
                   Exact
                 </button>
@@ -606,6 +694,7 @@ export default function AnalysisPage() {
                   <select
                     className="analysis-select"
                     value={cdmMin}
+                    disabled={analysisRunning}
                     onChange={(e) => setCdmMin(e.target.value)}
                   >
                     <option value="all">All</option>
@@ -621,6 +710,7 @@ export default function AnalysisPage() {
                   <select
                     className="analysis-select"
                     value={cdmMax}
+                    disabled={analysisRunning}
                     onChange={(e) => setCdmMax(e.target.value)}
                   >
                     <option value="all">All</option>
@@ -638,6 +728,7 @@ export default function AnalysisPage() {
                 <select
                   className="analysis-select"
                   value={cdmExact}
+                  disabled={analysisRunning}
                   onChange={(e) => setCdmExact(e.target.value)}
                 >
                   <option value="all">All</option>
@@ -694,16 +785,20 @@ export default function AnalysisPage() {
                         <tr
                           key={id}
                           className={`analysis-row ${checked ? "analysis-row--selected" : ""}`}
-                          onClick={() => setSelectedEventId(id)}
+                          onClick={() => {
+                            if (!analysisRunning) setSelectedEventId(id);
+                          }}
                           onKeyDown={(e) => {
+                            if (analysisRunning) return;
                             if (e.key === "Enter" || e.key === " ") {
                               e.preventDefault();
                               setSelectedEventId(id);
                             }
                           }}
-                          tabIndex={0}
+                          tabIndex={analysisRunning ? -1 : 0}
                           role="radio"
                           aria-checked={checked}
+                          aria-disabled={analysisRunning}
                           aria-label={`Select event ${id}`}
                         >
                           <td>
@@ -712,6 +807,7 @@ export default function AnalysisPage() {
                               name="analysis-event"
                               className="analysis-event-radio"
                               checked={checked}
+                              disabled={analysisRunning}
                               onChange={() => setSelectedEventId(id)}
                               onClick={(e) => e.stopPropagation()}
                               aria-hidden="true"
@@ -734,7 +830,7 @@ export default function AnalysisPage() {
               <button
                 type="button"
                 className="analysis-btn analysis-btn--ghost"
-                disabled={safeEventPage <= 1}
+                disabled={safeEventPage <= 1 || analysisRunning}
                 onClick={() => setEventPage((p) => Math.max(1, p - 1))}
               >
                 Previous
@@ -745,7 +841,7 @@ export default function AnalysisPage() {
               <button
                 type="button"
                 className="analysis-btn analysis-btn--ghost"
-                disabled={safeEventPage >= eventsTotalPages}
+                disabled={safeEventPage >= eventsTotalPages || analysisRunning}
                 onClick={() => setEventPage((p) => Math.min(eventsTotalPages, p + 1))}
               >
                 Next
@@ -757,10 +853,10 @@ export default function AnalysisPage() {
             <button
               type="button"
               className="analysis-btn analysis-btn--primary"
-              disabled={!selectedEventId || runBusy}
+              disabled={!selectedEventId || analysisRunning}
               onClick={() => void handleRunAnalysis()}
             >
-              {runBusy
+              {analysisRunning
                 ? "Running…"
                 : path === "actual"
                   ? "Run actual analysis"

@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchCdmValidationErrorsByUploadId } from "../../services/cdmUploadApi.js";
 import { fetchCdmUploadJobEventsByUploadId } from "../../services/cdmUploadApi.js";
 import "./DashboardComponents.css";
+
+const VALIDATION_ERR_PAGE_SIZE = 10;
 
 /**
  * @param {object} props
@@ -15,12 +17,14 @@ export default function CdmValidationErrorsModal({ open, uploadId, uploadCode = 
   const [error, setError] = useState(/** @type {string|null} */ (null));
   const [rows, setRows] = useState(/** @type {Array<Record<string, unknown>>} */ ([]));
   const [events, setEvents] = useState(/** @type {Array<Record<string, unknown>>} */ ([]));
+  const [errPage, setErrPage] = useState(1);
 
   useEffect(() => {
     if (!open || !uploadId) {
       setRows([]);
       setEvents([]);
       setError(null);
+      setErrPage(1);
       return;
     }
 
@@ -28,6 +32,7 @@ export default function CdmValidationErrorsModal({ open, uploadId, uploadCode = 
     (async () => {
       setLoading(true);
       setError(null);
+      setErrPage(1);
       try {
         const [errList, evList] = await Promise.all([
           fetchCdmValidationErrorsByUploadId(uploadId),
@@ -52,6 +57,13 @@ export default function CdmValidationErrorsModal({ open, uploadId, uploadCode = 
       cancelled = true;
     };
   }, [open, uploadId]);
+
+  const totalErrPages = Math.max(1, Math.ceil(rows.length / VALIDATION_ERR_PAGE_SIZE));
+  const safeErrPage = Math.min(errPage, totalErrPages);
+  const pagedErrRows = useMemo(() => {
+    const start = (safeErrPage - 1) * VALIDATION_ERR_PAGE_SIZE;
+    return rows.slice(start, start + VALIDATION_ERR_PAGE_SIZE);
+  }, [rows, safeErrPage]);
 
   if (!open) return null;
 
@@ -110,8 +122,8 @@ export default function CdmValidationErrorsModal({ open, uploadId, uploadCode = 
                       </td>
                     </tr>
                   ) : (
-                    rows.map((r, i) => (
-                      <tr key={`${r.row_number}-${i}`}>
+                    pagedErrRows.map((r, i) => (
+                      <tr key={`${r.row_number}-${safeErrPage}-${i}`}>
                         <td className="dash-mono">{String(r.row_number ?? "—")}</td>
                         <td className="dash-mono">{String(r.column_name ?? "—")}</td>
                         <td className="dash-mono">{String(r.error_code ?? "—")}</td>
@@ -122,6 +134,31 @@ export default function CdmValidationErrorsModal({ open, uploadId, uploadCode = 
                 </tbody>
               </table>
             </div>
+            {rows.length > 0 ? (
+              <div className="dash-pagination">
+                <button
+                  type="button"
+                  className="dash-btn dash-btn--ghost dash-btn--sm"
+                  disabled={safeErrPage <= 1}
+                  onClick={() => setErrPage((p) => Math.max(1, p - 1))}
+                  aria-label="Previous validation errors page"
+                >
+                  Previous
+                </button>
+                <span className="dash-pagination-info">
+                  Page {safeErrPage} of {totalErrPages}
+                </span>
+                <button
+                  type="button"
+                  className="dash-btn dash-btn--ghost dash-btn--sm"
+                  disabled={safeErrPage >= totalErrPages}
+                  onClick={() => setErrPage((p) => Math.min(totalErrPages, p + 1))}
+                  aria-label="Next validation errors page"
+                >
+                  Next
+                </button>
+              </div>
+            ) : null}
 
             <h3 className="dash-modal-section-title">Recent job events</h3>
             <ul className="dash-job-events">

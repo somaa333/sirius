@@ -1,3 +1,7 @@
+/**
+ * Report definitions and Supabase persistence for the Reports page.
+ * Builds risk summary and CDM event summaries from `risk_assessments`, `cdm_records`, and `reports`.
+ */
 import { supabase } from "../supabaseClient";
 
 const MAX_ROWS = 5000;
@@ -5,7 +9,6 @@ const MAX_ROWS = 5000;
 export const REPORT_TYPE_OPTIONS = [
   { value: "risk_summary", label: "Risk Summary Report" },
   { value: "cdm_event_summary", label: "CDM Event Summary Report" },
-  { value: "prediction_summary", label: "Prediction Summary Report" },
 ];
 
 function toIso(value) {
@@ -26,18 +29,6 @@ function dateRangeToUtcBounds(startDate, endDate) {
     startIso: start.toISOString(),
     endIso: end.toISOString(),
   };
-}
-
-function parseMaybeJson(raw) {
-  if (raw == null) return null;
-  if (typeof raw === "string") {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return raw;
-    }
-  }
-  return raw;
 }
 
 function normalizeFileType(value) {
@@ -214,6 +205,10 @@ export async function buildCdmEventSummaryReport(userId, startDate, endDate) {
   let maxCollisionProbability = null;
   let speedSum = 0;
   let speedCount = 0;
+  let largestEventId = null;
+  let largestCdmCount = 0;
+  let smallestEventId = null;
+  let smallestCdmCount = Infinity;
 
   for (const [eventId, rows] of byEvent.entries()) {
     rows.sort((a, b) => (toIso(a.creation_date) ?? "").localeCompare(toIso(b.creation_date) ?? ""));
@@ -238,15 +233,24 @@ export async function buildCdmEventSummaryReport(userId, startDate, endDate) {
       speedCount += 1;
     }
 
+    const cdmCount = rows.length;
     tableRows.push({
       event_id: eventId,
-      cdms_in_event: rows.length,
+      cdms_in_event: cdmCount,
       first_cdm_creation: rows[0]?.creation_date ?? null,
       latest_cdm_creation: latest?.creation_date ?? null,
       latest_tca: latest?.tca ?? null,
       minimum_miss_distance: eventMinMiss,
       maximum_collision_probability: eventMaxProb,
     });
+    if (cdmCount > largestCdmCount) {
+      largestCdmCount = cdmCount;
+      largestEventId = eventId;
+    }
+    if (cdmCount < smallestCdmCount) {
+      smallestCdmCount = cdmCount;
+      smallestEventId = eventId;
+    }
   }
 
   const totalEvents = byEvent.size;
@@ -262,6 +266,10 @@ export async function buildCdmEventSummaryReport(userId, startDate, endDate) {
       minimum_miss_distance: minMissDistance,
       maximum_collision_probability: maxCollisionProbability,
       average_relative_speed: speedCount ? speedSum / speedCount : null,
+      largest_event_id: largestEventId,
+      largest_event_cdm_count: totalEvents ? largestCdmCount : null,
+      smallest_event_id: smallestEventId,
+      smallest_event_cdm_count: totalEvents ? smallestCdmCount : null,
     },
     tableColumns: [
       "event_id",
@@ -274,106 +282,6 @@ export async function buildCdmEventSummaryReport(userId, startDate, endDate) {
     ],
     tableRows: sortByDateDesc(tableRows, "latest_cdm_creation"),
     chartData: tableRows.slice(0, 12).map((r) => ({ name: r.event_id, value: r.cdms_in_event })),
-  };
-}
-
-export async function buildPredictionSummaryReport(userId, startDate, endDate) {
-  const { startIso, endIso } = dateRangeToUtcBounds(startDate, endDate);
-  const { data, error } = await supabase
-    .from("risk_assessments")
-    .select("*")
-    .eq("created_by", userId)
-    .eq("analysis_type", "predicted")
-    .gte("created_at", startIso)
-    .lte("created_at", endIso)
-    .order("created_at", { ascending: false })
-    .limit(MAX_ROWS);
-  if (error) throw error;
-  const assessments = Array.isArray(data) ? data : [];
-  const predictedIds = assessments
-    .map((r) => String(r.predicted_cdm_record_id ?? "").trim())
-    .filter(Boolean);
-
-  let predictedRows = [];
-  if (predictedIds.length) {
-    const predResp = await supabase
-      .from("predicted_cdm_records")
-      .select("*")
-      .eq("created_by", userId)
-      .in("id", predictedIds)
-      .limit(MAX_ROWS);
-    if (predResp.error) throw predResp.error;
-    predictedRows = Array.isArray(predResp.data) ? predResp.data : [];
-  }
-  const predMap = new Map(predictedRows.map((r) => [String(r.id), r]));
-
-  const confVals = [];
-  const missVals = [];
-  const speedVals = [];
-  const uncertainVals = [];
-  let highCount = 0;
-  let lowCount = 0;
-
-  const tableRows = assessments.map((a) => {
-    const confidence = toNumber(a.confidence_score);
-    if (confidence != null) confVals.push(confidence);
-    const risk = String(a.risk_level ?? "").toLowerCase();
-    if (risk === "high") highCount += 1;
-    if (risk === "low") lowCount += 1;
-
-    const pred = predMap.get(String(a.predicted_cdm_record_id ?? ""));
-    const miss = toNumber(pred?.miss_distance);
-    const speed = toNumber(pred?.relative_speed);
-    if (miss != null) missVals.push(miss);
-    if (speed != null) speedVals.push(speed);
-
-    let overallUncertainty = toNumber(pred?.overall_uncertainty);
-    if (overallUncertainty == null) {
-      const predictionOutput = parseMaybeJson(a.prediction_output);
-      overallUncertainty = toNumber(predictionOutput?.overall_uncertainty);
-    }
-    if (overallUncertainty != null) uncertainVals.push(overallUncertainty);
-
-    return {
-      assessment_id: a.assessment_id ?? a.id ?? "—",
-      event_id: a.event_id ?? "—",
-      risk_level: a.risk_level ?? "—",
-      confidence,
-      predicted_cdm_creation: pred?.creation_date ?? null,
-      predicted_miss_distance: miss,
-      predicted_collision_probability: toNumber(pred?.collision_probability),
-      created_at: a.created_at ?? null,
-      overall_uncertainty: overallUncertainty,
-    };
-  });
-
-  return {
-    reportName: reportTypeLabel("prediction_summary"),
-    reportType: "prediction_summary",
-    summary: {
-      total_predicted_analyses: assessments.length,
-      average_confidence: confVals.length ? confVals.reduce((a, b) => a + b, 0) / confVals.length : null,
-      average_predicted_miss_distance: missVals.length ? missVals.reduce((a, b) => a + b, 0) / missVals.length : null,
-      average_predicted_relative_speed: speedVals.length ? speedVals.reduce((a, b) => a + b, 0) / speedVals.length : null,
-      average_overall_uncertainty: uncertainVals.length ? uncertainVals.reduce((a, b) => a + b, 0) / uncertainVals.length : null,
-      high_risk_predicted_count: highCount,
-      low_risk_predicted_count: lowCount,
-    },
-    tableColumns: [
-      "assessment_id",
-      "event_id",
-      "risk_level",
-      "confidence",
-      "predicted_cdm_creation",
-      "predicted_miss_distance",
-      "predicted_collision_probability",
-      "created_at",
-    ],
-    tableRows: sortByDateDesc(tableRows, "created_at"),
-    chartData: [
-      { name: "High", value: highCount },
-      { name: "Low", value: lowCount },
-    ],
   };
 }
 
