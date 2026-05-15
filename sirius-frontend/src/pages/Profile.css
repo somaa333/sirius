@@ -250,6 +250,10 @@
   gap: 6px;
 }
 
+.profile-section > .profile-field-group + .profile-field-group {
+  margin-top: 1.25rem;
+}
+
 .profile-field-group label {
   font-size: 0.875rem;
   color: #9ca3af;

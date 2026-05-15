@@ -9,6 +9,24 @@ import {
 
 const MAX_ASSESSMENTS = 5000;
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * @param {string} value
+ */
+function isAssessmentUuid(value) {
+  return UUID_RE.test(String(value).trim());
+}
+
+/**
+ * Display code from FastAPI, e.g. RA42.
+ * @param {string} value
+ */
+function isDisplayAssessmentCode(value) {
+  return /^RA\d+$/i.test(String(value).trim());
+}
+
 /**
  * @param {unknown} v
  * @returns {string | null}
@@ -212,18 +230,58 @@ export async function fetchRiskAssessments(userId) {
 }
 
 /**
+ * @param {string} idOrCode — uuid or display code (RA…)
+ * @param {string} userId
+ * @returns {Promise<string | null>} risk_assessments.id (uuid)
+ */
+async function resolveAssessmentPkForDelete(idOrCode, userId) {
+  const row = await fetchRiskAssessmentById(idOrCode, userId);
+  if (!row) return null;
+  return getAssessmentPrimaryKey(row);
+}
+
+/**
+ * @param {unknown} error
+ * @returns {Error}
+ */
+function mapRiskAssessmentDeleteRpcError(error) {
+  const code = String(error?.code ?? "");
+  const message = String(error?.message ?? "Could not delete assessment.");
+  if (code === "PGRST202" || /delete_risk_assessment/i.test(message)) {
+    return new Error(
+      "Delete is not configured on the database yet. Apply the Supabase migration `20260515120000_delete_risk_assessment.sql`, then try again.",
+    );
+  }
+  return error instanceof Error ? error : new Error(message);
+}
+
+/**
+ * @param {unknown} payload
+ */
+function assertRiskAssessmentDeleteRpcOk(payload) {
+  if (payload?.ok === true) return;
+  const reason = String(payload?.reason ?? "");
+  if (reason === "not_found" || reason === "not_deleted") {
+    throw new Error("Assessment not found or you do not have permission to delete it.");
+  }
+  throw new Error("Assessment could not be deleted.");
+}
+
+/**
  * @param {string} id
  * @param {string} userId
  */
 export async function deleteRiskAssessment(id, userId) {
-  const key = String(id ?? "").trim();
-  if (!key) return;
-  const { error } = await supabase
-    .from("risk_assessments")
-    .delete()
-    .eq("id", key)
-    .eq("created_by", userId);
-  if (error) throw error;
+  const pk = await resolveAssessmentPkForDelete(id, userId);
+  if (!pk) {
+    throw new Error("Assessment not found or you do not have permission to delete it.");
+  }
+
+  const { data, error } = await supabase.rpc("delete_risk_assessment", {
+    p_assessment_id: pk,
+  });
+  if (error) throw mapRiskAssessmentDeleteRpcError(error);
+  assertRiskAssessmentDeleteRpcOk(data);
 }
 
 /**
@@ -233,12 +291,35 @@ export async function deleteRiskAssessment(id, userId) {
 export async function deleteRiskAssessments(ids, userId) {
   const keys = [...new Set((ids ?? []).map((v) => String(v ?? "").trim()).filter(Boolean))];
   if (!keys.length) return;
-  const { error } = await supabase
-    .from("risk_assessments")
-    .delete()
-    .in("id", keys)
-    .eq("created_by", userId);
-  if (error) throw error;
+
+  const pks = [];
+  for (const key of keys) {
+    const pk = await resolveAssessmentPkForDelete(key, userId);
+    if (pk) pks.push(pk);
+  }
+  const uniquePks = [...new Set(pks)];
+  if (!uniquePks.length) {
+    throw new Error("No assessments could be found to delete.");
+  }
+
+  const { data, error } = await supabase.rpc("delete_risk_assessments", {
+    p_assessment_ids: uniquePks,
+  });
+  if (error) throw mapRiskAssessmentDeleteRpcError(error);
+
+  if (data?.ok === true) return;
+
+  const reason = String(data?.reason ?? "");
+  const deleted = Number(data?.deleted ?? 0);
+  const requested = Number(data?.requested ?? uniquePks.length);
+
+  if (reason === "partial" && deleted > 0) {
+    throw new Error(`Only ${deleted} of ${requested} selected assessments were deleted.`);
+  }
+  if (reason === "not_found" || deleted === 0) {
+    throw new Error("No assessments could be deleted. They may not exist or you may not have permission.");
+  }
+  throw new Error("Assessments could not be deleted.");
 }
 
 /**
@@ -250,14 +331,28 @@ export async function fetchRiskAssessmentById(assessmentId, userId) {
   const id = String(assessmentId).trim();
   if (!id) return null;
 
-  const byPk = await supabase
-    .from("risk_assessments")
-    .select("*")
-    .eq("id", id)
-    .eq("created_by", userId)
-    .maybeSingle();
-  if (byPk.error) throw byPk.error;
-  if (byPk.data) return /** @type {Record<string, unknown>} */ (byPk.data);
+  // Query by display code first — never pass RA… into a uuid `id` column (Postgres error).
+  if (isDisplayAssessmentCode(id)) {
+    const byCode = await supabase
+      .from("risk_assessments")
+      .select("*")
+      .eq("assessment_id", id)
+      .eq("created_by", userId)
+      .maybeSingle();
+    if (byCode.error) throw byCode.error;
+    return byCode.data ? /** @type {Record<string, unknown>} */ (byCode.data) : null;
+  }
+
+  if (isAssessmentUuid(id)) {
+    const byPk = await supabase
+      .from("risk_assessments")
+      .select("*")
+      .eq("id", id)
+      .eq("created_by", userId)
+      .maybeSingle();
+    if (byPk.error) throw byPk.error;
+    if (byPk.data) return /** @type {Record<string, unknown>} */ (byPk.data);
+  }
 
   const byAlt = await supabase
     .from("risk_assessments")

@@ -14,11 +14,10 @@ export async function runWorkerLoop(signal: AbortSignal): Promise<void> {
         await sleep(config.idlePollMs, signal);
         continue;
       }
-      console.log(`[worker] claimed job ${job.id}`);
       await processCdmJob(job);
-      console.log(`[worker] finished job ${job.id}`);
     } catch (e) {
-      console.error("[worker] loop error", e);
+      const msg = e instanceof Error ? e.message : "Unknown worker loop error";
+      console.error("[worker] loop error:", msg);
       await sleep(config.idlePollMs, signal);
     }
   }

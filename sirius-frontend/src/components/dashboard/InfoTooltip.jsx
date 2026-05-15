@@ -5,12 +5,13 @@ import { useId } from "react";
  * @param {object} props
  * @param {string} props.text Tooltip body (plain text)
  * @param {string} props.label Short name for assistive tech, e.g. metric title
+ * @param {boolean} [props.wide] Wider popover and left-aligned text for longer copy
  */
-export default function InfoTooltip({ text, label }) {
+export default function InfoTooltip({ text, label, wide = false }) {
   const tipId = useId();
 
   return (
-    <span className="dash-info-tooltip">
+    <span className={`dash-info-tooltip${wide ? " dash-info-tooltip--wide" : ""}`}>
       <button
         type="button"
         className="dash-info-tooltip-trigger"

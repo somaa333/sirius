@@ -20,6 +20,8 @@ import {
 } from "./profileAvatar";
 import { useAuth } from "../AuthContext.jsx";
 import { useToast } from "../components/toast/ToastProvider.jsx";
+import { countReportsForUser } from "../data/reportsData.js";
+import { getPasswordUpdateErrorMessage } from "../utils/passwordErrors.js";
 import "./Profile.css";
 
 function formatDate(iso) {
@@ -124,7 +126,13 @@ export default function Profile() {
       setUsername(data.public_id ?? "");
       setOrganization(data.organization ?? "");
       setRole(data.role ?? "");
-      setReportsGenerated(data.reports_generated ?? data.reports ?? 0);
+      let reportCount = 0;
+      try {
+        reportCount = await countReportsForUser(effectiveProfileUserId);
+      } catch {
+        reportCount = Number(data.reports_generated ?? data.reports ?? 0) || 0;
+      }
+      setReportsGenerated(reportCount);
       setViewedEmail(
         String(data.email ?? viewedOperatorFromState?.email ?? ""),
       );
@@ -270,7 +278,7 @@ export default function Profile() {
       });
 
       if (updateError) {
-        pushToast(`Password update failed: ${updateError.message}`, "error");
+        pushToast(getPasswordUpdateErrorMessage(updateError), "error");
         setSaving(false);
         return;
       }
@@ -292,10 +300,6 @@ export default function Profile() {
       organization,
       public_id: trimmedUsername,
     };
-
-    if (isAdmin) {
-      updates.role = role;
-    }
 
     const { error } = await supabase
       .from("profiles")
@@ -472,40 +476,23 @@ export default function Profile() {
 
                   <div className="profile-field-group profile-field-with-icon">
                     <label htmlFor="role">Role</label>
-                    {isAdmin ? (
-                      <div className="profile-input-wrap">
-                        <span className="profile-input-icon" aria-hidden="true">
-                          <RoleIcon />
-                        </span>
-                        <select
-                          id="role"
-                          value={role}
-                          onChange={(e) => setRole(e.target.value)}
-                          disabled={isViewingOtherProfile}
-                        >
-                          <option value="admin">Admin</option>
-                          <option value="operator">Operator</option>
-                        </select>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="profile-input-wrap">
-                          <span className="profile-input-icon" aria-hidden="true">
-                            <RoleIcon />
-                          </span>
-                          <input
-                            id="role"
-                            type="text"
-                            value={role}
-                            readOnly
-                            disabled
-                          />
-                        </div>
-                        <p className="profile-help-text">
-                          Role is managed by administrators.
-                        </p>
-                      </>
-                    )}
+                    <div className="profile-input-wrap">
+                      <span className="profile-input-icon" aria-hidden="true">
+                        <RoleIcon />
+                      </span>
+                      <input
+                        id="role"
+                        type="text"
+                        value={role}
+                        readOnly
+                        disabled
+                      />
+                    </div>
+                    {!isAdmin ? (
+                      <p className="profile-help-text">
+                        Role is managed by administrators.
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="profile-field-group">

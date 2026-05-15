@@ -276,8 +276,8 @@ export async function runClaimedJob(job) {
       invalidRows: invalidCount,
     });
   } catch (err) {
-    console.error(err);
     const msg = err instanceof Error ? err.message : String(err);
+    console.error("CDM job processing failed:", msg);
     await insertJobEvent(uploadId, "failed", msg, null);
     await finishJob({
       uploadId,

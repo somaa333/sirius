@@ -266,35 +266,52 @@ function copyText(text) {
   void navigator.clipboard.writeText(text);
 }
 
-function FieldRows({ rows, copyableKeys = [] }) {
+/** Readable one-line id: full value in tooltip + copy; abbreviate long UUIDs. */
+function formatCompactId(raw) {
+  if (raw == null || raw === "") return { display: "—", full: "" };
+  const s = String(raw).trim();
+  if (!s) return { display: "—", full: "" };
+  if (s.length <= 22) return { display: s, full: s };
+  return { display: `${s.slice(0, 10)}…${s.slice(-8)}`, full: s };
+}
+
+function FieldRows({ rows, copyableKeys = [], longIdKeys = [] }) {
   const [copiedKey, setCopiedKey] = useState("");
   const copyableSet = useMemo(() => new Set(copyableKeys), [copyableKeys]);
+  const longIdSet = useMemo(() => new Set(longIdKeys), [longIdKeys]);
   return (
     <div className="analysis2-rows">
-      {rows.map((r) => (
-        <div className="analysis2-row" key={r.label}>
-          <span>{r.label}</span>
-          <strong className="analysis2-row-value">
-            <span>{r.value}</span>
-            {copyableSet.has(r.key) && r.value !== "—" ? (
-              <button
-                type="button"
-                className="analysis2-inline-copy"
-                aria-label={`Copy ${r.label}`}
-                onClick={() => {
-                  copyText(String(r.rawValue ?? r.value));
-                  setCopiedKey(r.key);
-                  window.setTimeout(() => {
-                    setCopiedKey((prev) => (prev === r.key ? "" : prev));
-                  }, 1200);
-                }}
-              >
-                {copiedKey === r.key ? "Copied" : "Copy"}
-              </button>
-            ) : null}
-          </strong>
-        </div>
-      ))}
+      {rows.map((r) => {
+        const rowKey = r.key != null ? String(r.key) : String(r.label);
+        const longId = r.key != null && longIdSet.has(r.key);
+        const title = r.valueTitle != null ? String(r.valueTitle) : undefined;
+        return (
+          <div className="analysis2-row" key={rowKey}>
+            <span>{r.label}</span>
+            <strong
+              className={`analysis2-row-value${longId ? " analysis2-row-value--longid" : ""}`}
+            >
+              <span title={title}>{r.value}</span>
+              {copyableSet.has(r.key) && r.value !== "—" ? (
+                <button
+                  type="button"
+                  className="analysis2-inline-copy"
+                  aria-label={`Copy ${r.label}`}
+                  onClick={() => {
+                    copyText(String(r.rawValue ?? r.valueTitle ?? r.value));
+                    setCopiedKey(rowKey);
+                    window.setTimeout(() => {
+                      setCopiedKey((prev) => (prev === rowKey ? "" : prev));
+                    }, 1200);
+                  }}
+                >
+                  {copiedKey === rowKey ? "Copied" : "Copy"}
+                </button>
+              ) : null}
+            </strong>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -338,15 +355,6 @@ function JsonViewer({ title, data, defaultOpen = false }) {
   );
 }
 
-function StatCard({ label, value }) {
-  return (
-    <article className="analysis2-stat-card">
-      <p>{label}</p>
-      <h3>{value}</h3>
-    </article>
-  );
-}
-
 export default function AnalysisDetailsPage() {
   const { assessmentId } = useParams();
   const navigate = useNavigate();
@@ -359,7 +367,6 @@ export default function AnalysisDetailsPage() {
   const [predictedRow, setPredictedRow] = useState(null);
   const [tab, setTab] = useState(TAB_OVERVIEW);
   const [selectedCdmIdx, setSelectedCdmIdx] = useState(0);
-  const [uncertaintyMode, setUncertaintyMode] = useState("std");
   const [shapExpanded, setShapExpanded] = useState(false);
   const [shapGenerating, setShapGenerating] = useState(false);
   const [shapGenError, setShapGenError] = useState(false);
@@ -513,70 +520,95 @@ export default function AnalysisDetailsPage() {
   const firstInput = sortedInputCdms[0];
   const lastInput = sortedInputCdms[sortedInputCdms.length - 1];
 
-  const metricCards = useMemo(() => {
-    const cards = [
-      { label: "Input CDMs", value: String(sortedInputCdms.length) },
-      {
-        label: "First Input CDM",
-        value: firstInput ? formatUtc(firstInput.creation_date ?? firstInput.created_at) : "—",
-      },
-      {
-        label: "Last Input CDM",
-        value: lastInput ? formatUtc(lastInput.creation_date ?? lastInput.created_at) : "—",
-      },
-    ];
-    if (isPredicted) {
-      cards.push(
-        {
-          label: "Predicted CDM Created",
-          value: predictedRow ? formatUtc(predictedRow.creation_date ?? predictedRow.created_at) : "—",
-        },
-      );
-    }
-    return cards;
-  }, [sortedInputCdms.length, firstInput, lastInput, isPredicted, predictedRow]);
-
-  const mcDropout = getObj(classificationOutput, "mc_dropout");
-  const mcSamples = Array.isArray(getObj(mcDropout, "samples")) ? getObj(mcDropout, "samples") : [];
-  const mcNumeric = mcSamples.map(asNumber).filter((n) => n != null);
-  const mcStats = useMemo(() => {
-    if (!mcNumeric.length) return null;
-    const min = Math.min(...mcNumeric);
-    const max = Math.max(...mcNumeric);
-    const mean = mcNumeric.reduce((a, b) => a + b, 0) / mcNumeric.length;
-    const variance = mcNumeric.reduce((a, b) => a + (b - mean) ** 2, 0) / mcNumeric.length;
-    return { min, max, mean, std: Math.sqrt(variance), count: mcNumeric.length };
-  }, [mcNumeric]);
-
-  const featureUncertaintyRows = useMemo(() => {
-    if (!predictionOutput || typeof predictionOutput !== "object") return [];
-    const stdMap = getObj(predictionOutput, "feature_uncertainty_std");
-    const varMap = getObj(predictionOutput, "feature_uncertainty_variance");
-    if (!stdMap || typeof stdMap !== "object") return [];
-    return Object.keys(stdMap)
-      .map((feature) => ({
-        feature,
-        std: asNumber(stdMap[feature]),
-        variance: varMap && typeof varMap === "object" ? asNumber(varMap[feature]) : null,
-      }))
-      .sort((a, b) => (b.std ?? -Infinity) - (a.std ?? -Infinity));
-  }, [predictionOutput]);
-
-  const shownUncertaintyRows = featureUncertaintyRows.map((r) => ({
-    feature: r.feature,
-    value: uncertaintyMode === "variance" ? r.variance : r.std,
-  }));
-
   const tabDefs = useMemo(() => {
-    const base = [
-      { id: TAB_OVERVIEW, label: "Overview" },
-      { id: TAB_CLASSIFICATION, label: "Classification" },
-    ];
+    const base = [{ id: TAB_OVERVIEW, label: "Overview" }];
     if (isPredicted) base.push({ id: TAB_PREDICTION, label: "Prediction" });
+    base.push({ id: TAB_CLASSIFICATION, label: "Classification" });
     base.push({ id: TAB_INPUT, label: "Input CDMs" });
     base.push({ id: TAB_RAW, label: "Raw Data" });
     return base;
   }, [isPredicted]);
+
+  const predictedCdmSummaryRows = useMemo(() => {
+    if (!predictedRow) return [];
+
+    const predictedUuid =
+      predictedRow.id != null && predictedRow.id !== "" ? String(predictedRow.id).trim() : "";
+    const predictedCode = String(
+      predictedRow.predicted_cdm_code ?? predictedRow.predictedCdmCode ?? "",
+    ).trim();
+    const predUseCode = predictedCode.length > 0;
+    const predFallback = predictedUuid ? formatCompactId(predictedUuid) : { display: "—", full: "" };
+    const predDisplay = predUseCode ? predictedCode : predFallback.display;
+    const predCopy = predUseCode ? predictedCode : predFallback.full;
+    const predTitle = predUseCode && predictedUuid ? predictedUuid : undefined;
+
+    const sourceUuidRaw = predictedRow.source_actual_event_last_cdm_id;
+    const sourceUuid =
+      sourceUuidRaw != null && sourceUuidRaw !== "" ? String(sourceUuidRaw).trim() : "";
+    const sourceCdm = sortedInputCdms.find((c) => String(c?.id ?? "") === sourceUuid);
+    const sourceCode = String(sourceCdm?.cdm_code ?? sourceCdm?.cdmCode ?? "").trim();
+    const sourceUseCode = sourceCode.length > 0;
+    const srcFallback = sourceUuid ? formatCompactId(sourceUuid) : { display: "—", full: "" };
+    const srcDisplay = sourceUseCode ? sourceCode : srcFallback.display;
+    const srcCopy = sourceUseCode ? sourceCode : srcFallback.full;
+    const srcTitle = sourceUseCode && sourceUuid ? sourceUuid : undefined;
+
+    return [
+      {
+        key: "predicted_cdm_id",
+        label: "Predicted CDM ID",
+        value: predDisplay,
+        rawValue: predCopy,
+        valueTitle: predTitle,
+      },
+      {
+        key: "event_id",
+        label: "Event ID",
+        value: formatGenericValue("event_id", predictedRow.event_id),
+        rawValue: predictedRow.event_id,
+      },
+      {
+        key: "creation_date",
+        label: "Creation Date",
+        value: formatGenericValue(
+          "creation_date",
+          predictedRow.creation_date ?? predictedRow.created_at,
+        ),
+        rawValue: predictedRow.creation_date ?? predictedRow.created_at,
+      },
+      {
+        key: "tca",
+        label: "TCA",
+        value: formatGenericValue("tca", predictedRow.tca),
+        rawValue: predictedRow.tca,
+      },
+      {
+        key: "time_to_tca",
+        label: "Time To TCA",
+        value: formatGenericValue("time_to_tca", predictedRow.time_to_tca),
+        rawValue: predictedRow.time_to_tca,
+      },
+      {
+        key: "source_last_cdm_id",
+        label: "Source Last CDM ID",
+        value: srcDisplay,
+        rawValue: srcCopy,
+        valueTitle: srcTitle,
+      },
+    ];
+  }, [predictedRow, sortedInputCdms]);
+
+  const predictedSummaryLongIdKeys = useMemo(() => {
+    const keys = [];
+    const pred = predictedCdmSummaryRows.find((r) => r.key === "predicted_cdm_id");
+    const src = predictedCdmSummaryRows.find((r) => r.key === "source_last_cdm_id");
+    const predVal = pred && typeof pred.value === "string" ? pred.value : "";
+    const srcVal = src && typeof src.value === "string" ? src.value : "";
+    if (predVal && (predVal.includes("…") || predVal.length > 22)) keys.push("predicted_cdm_id");
+    if (srcVal && (srcVal.includes("…") || srcVal.length > 22)) keys.push("source_last_cdm_id");
+    return keys;
+  }, [predictedCdmSummaryRows]);
 
   useEffect(() => {
     if (!tabDefs.some((t) => t.id === tab)) setTab(TAB_OVERVIEW);
@@ -645,10 +677,105 @@ export default function AnalysisDetailsPage() {
             </div>
           </section>
 
-          <section className="analysis2-metrics-grid">
-            {metricCards.map((m) => (
-              <StatCard key={m.label} label={m.label} value={m.value} />
-            ))}
+          <section className="analysis2-panel" aria-labelledby="decision-explanation-heading">
+            <div className="analysis2-shap-title-row">
+              <h3 id="decision-explanation-heading">Decision Explanation</h3>
+              <button
+                type="button"
+                className="analysis2-shap-info"
+                aria-label="SHAP impact sign help"
+                title="Positive impact pushes the model toward High Risk. Negative impact pushes it toward Low Risk."
+              >
+                ?
+              </button>
+            </div>
+            <p className="analysis2-shap-lede">
+              SHAP highlights which input features had the strongest influence on this classification.
+            </p>
+            {hasShapFeatures ? (
+              <>
+                <ul className="analysis2-shap-list">
+                  {shapRowsVisible.map((raw, idx) => {
+                    const item = /** @type {Record<string, unknown>} */ (raw);
+                    const fname = String(item.feature ?? "");
+                    const signed = Number(item.signed_mean_shap);
+                    const strength = getShapAbsStrength(item);
+                    const pct = shapBarMax > 0 ? Math.min(100, (strength / shapBarMax) * 100) : 0;
+                    const barTone =
+                      !Number.isFinite(signed) || signed === 0
+                        ? "neutral"
+                        : signed > 0
+                          ? "high"
+                          : "low";
+                    return (
+                      <li key={`${fname}-${idx}`} className="analysis2-shap-item">
+                        <div className="analysis2-shap-item-head">
+                          <span className="analysis2-shap-rank">{idx + 1}.</span>
+                          <span className="analysis2-shap-name" title={fname || undefined}>
+                            {formatShapFeatureLabel(fname)}
+                          </span>
+                        </div>
+                        <div
+                          className={`analysis2-shap-bar analysis2-shap-bar-${barTone}`}
+                          aria-hidden
+                        >
+                          <span style={{ width: `${pct}%` }} />
+                        </div>
+                        <div className="analysis2-shap-meta">
+                          <span>
+                            Impact:{" "}
+                            <strong>{formatShapImpactSigned(item.signed_mean_shap)}</strong>
+                          </span>
+                          <span className="analysis2-shap-dir">{getShapDirectionLabel(signed)}</span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {shapTopFeatures.length > 3 ? (
+                  <button
+                    type="button"
+                    className="analysis2-shap-expand"
+                    onClick={() => setShapExpanded((v) => !v)}
+                  >
+                    {shapExpanded ? "Show top 3 features" : "Show top 10 features"}
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <div className="analysis2-shap-empty">
+                {shapGenError ? (
+                  <p className="analysis2-error" role="alert">
+                    Explanation could not be generated for this assessment.
+                  </p>
+                ) : (
+                  <p className="analysis2-muted">No explanation data is available yet.</p>
+                )}
+                <button
+                  type="button"
+                  className="analysis2-btn analysis2-shap-generate"
+                  disabled={shapGenerating || !assessmentPk || !user?.id}
+                  onClick={async () => {
+                    if (!user?.id || !assessmentPk) return;
+                    setShapGenError(false);
+                    setShapGenerating(true);
+                    try {
+                      const out = await generateAssessmentShap(assessmentPk, user.id);
+                      const nextShap = out && typeof out === "object" ? out.shap_output : null;
+                      setAssessment((prev) =>
+                        prev ? { ...prev, shap_output: nextShap ?? null } : prev,
+                      );
+                    } catch {
+                      setShapGenError(true);
+                    } finally {
+                      setShapGenerating(false);
+                    }
+                  }}
+                >
+                  {shapGenerating ? "Generating…" : "Generate Explanation"}
+                </button>
+              </div>
+            )}
           </section>
 
           <section className="analysis2-tabs">
@@ -714,189 +841,34 @@ export default function AnalysisDetailsPage() {
                     ]}
                   />
                 </article>
-
-                <article className="analysis2-block analysis2-shap-card">
-                  <div className="analysis2-shap-title-row">
-                    <h3>Decision Explanation</h3>
-                    <button
-                      type="button"
-                      className="analysis2-shap-info"
-                      aria-label="SHAP impact sign help"
-                      title="Positive impact pushes the model toward High Risk. Negative impact pushes it toward Low Risk."
-                    >
-                      ?
-                    </button>
-                  </div>
-                  <p className="analysis2-shap-lede">
-                    SHAP highlights which input features had the strongest influence on this classification.
-                  </p>
-                  {hasShapFeatures ? (
-                    <>
-                      <ul className="analysis2-shap-list">
-                        {shapRowsVisible.map((raw, idx) => {
-                          const item = /** @type {Record<string, unknown>} */ (raw);
-                          const fname = String(item.feature ?? "");
-                          const signed = Number(item.signed_mean_shap);
-                          const strength = getShapAbsStrength(item);
-                          const pct = shapBarMax > 0 ? Math.min(100, (strength / shapBarMax) * 100) : 0;
-                          const barTone =
-                            !Number.isFinite(signed) || signed === 0
-                              ? "neutral"
-                              : signed > 0
-                                ? "high"
-                                : "low";
-                          return (
-                            <li key={`${fname}-${idx}`} className="analysis2-shap-item">
-                              <div className="analysis2-shap-item-head">
-                                <span className="analysis2-shap-rank">{idx + 1}.</span>
-                                <span className="analysis2-shap-name" title={fname || undefined}>
-                                  {formatShapFeatureLabel(fname)}
-                                </span>
-                              </div>
-                              <div
-                                className={`analysis2-shap-bar analysis2-shap-bar-${barTone}`}
-                                aria-hidden
-                              >
-                                <span style={{ width: `${pct}%` }} />
-                              </div>
-                              <div className="analysis2-shap-meta">
-                                <span>
-                                  Impact:{" "}
-                                  <strong>{formatShapImpactSigned(item.signed_mean_shap)}</strong>
-                                </span>
-                                <span className="analysis2-shap-dir">{getShapDirectionLabel(signed)}</span>
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                      {shapTopFeatures.length > 3 ? (
-                        <button
-                          type="button"
-                          className="analysis2-shap-expand"
-                          onClick={() => setShapExpanded((v) => !v)}
-                        >
-                          {shapExpanded ? "Show top 3 features" : "Show top 10 features"}
-                        </button>
-                      ) : null}
-                    </>
-                  ) : (
-                    <div className="analysis2-shap-empty">
-                      {shapGenError ? (
-                        <p className="analysis2-error" role="alert">
-                          Explanation could not be generated for this assessment.
-                        </p>
-                      ) : (
-                        <p className="analysis2-muted">
-                          No explanation data is available yet.
-                        </p>
-                      )}
-                      <button
-                        type="button"
-                        className="analysis2-btn analysis2-shap-generate"
-                        disabled={shapGenerating || !assessmentPk || !user?.id}
-                        onClick={async () => {
-                          if (!user?.id || !assessmentPk) return;
-                          setShapGenError(false);
-                          setShapGenerating(true);
-                          try {
-                            const out = await generateAssessmentShap(assessmentPk, user.id);
-                            const nextShap = out && typeof out === "object" ? out.shap_output : null;
-                            setAssessment((prev) =>
-                              prev ? { ...prev, shap_output: nextShap ?? null } : prev,
-                            );
-                          } catch {
-                            setShapGenError(true);
-                          } finally {
-                            setShapGenerating(false);
-                          }
-                        }}
-                      >
-                        {shapGenerating ? "Generating…" : "Generate Explanation"}
-                      </button>
-                    </div>
-                  )}
-                </article>
               </div>
             </section>
           ) : null}
 
           {tab === TAB_CLASSIFICATION ? (
             <section className="analysis2-panel">
-              <div className="analysis2-grid-2">
-                <article className="analysis2-block">
-                  <h3>Classification result</h3>
-                  <FieldRows
-                    rows={[
-                      { label: "Risk Level", value: String(getObj(classificationOutput, "risk_level") ?? riskLevel) },
-                      {
-                        label: "Classification Probability",
-                        value: formatSci(getObj(classificationOutput, "classification_probability") ?? classProb),
-                      },
-                      {
-                        label: "Confidence Score",
-                        value: formatPercent(getObj(classificationOutput, "confidence_score") ?? confidence),
-                      },
-                      {
-                        label: "Decision Threshold",
-                        value: formatGenericValue("decision_threshold", getObj(classificationOutput, "decision_threshold")),
-                      },
-                      {
-                        label: "Recommended Decision",
-                        value: String(
-                          getObj(classificationOutput, "recommended_decision") ?? decision ?? "—",
-                        ),
-                      },
-                      {
-                        label: "Target True Label",
-                        value: formatGenericValue(
-                          "target_true_label_if_known",
-                          getObj(classificationOutput, "target_true_label_if_known"),
-                        ),
-                      },
-                    ]}
-                  />
-                </article>
-
-                <article className="analysis2-block">
-                  <h3>Uncertainty / MC Dropout</h3>
-                  <FieldRows
-                    rows={[
-                      {
-                        label: "Enabled",
-                        value: formatGenericValue("enabled", getObj(mcDropout, "enabled")),
-                      },
-                      { label: "Passes", value: formatGenericValue("passes", getObj(mcDropout, "passes")) },
-                      {
-                        label: "Uncertainty Std",
-                        value: formatGenericValue(
-                          "uncertainty_std",
-                          getObj(classificationOutput, "uncertainty_std"),
-                        ),
-                      },
-                    ]}
-                  />
-                  {mcStats ? (
-                    <FieldRows
-                      rows={[
-                        { label: "Sample Count", value: String(mcStats.count) },
-                        { label: "Min Sample", value: mcStats.min.toExponential(3) },
-                        { label: "Max Sample", value: mcStats.max.toExponential(3) },
-                        { label: "Mean Sample", value: mcStats.mean.toExponential(3) },
-                        { label: "Std Sample", value: mcStats.std.toExponential(3) },
-                      ]}
-                    />
-                  ) : (
-                    <p className="analysis2-muted">No MC Dropout samples available.</p>
-                  )}
-                  {mcNumeric.length ? (
-                    <details className="analysis2-collapsible">
-                      <summary>View Samples</summary>
-                      <pre>{JSON.stringify(mcNumeric, null, 2)}</pre>
-                    </details>
-                  ) : null}
-                </article>
-              </div>
+              <article className="analysis2-block">
+                <h3>Classification result</h3>
+                <FieldRows
+                  rows={[
+                    { label: "Risk Level", value: String(getObj(classificationOutput, "risk_level") ?? riskLevel) },
+                    {
+                      label: "Classification Probability",
+                      value: formatSci(getObj(classificationOutput, "classification_probability") ?? classProb),
+                    },
+                    {
+                      label: "Confidence Score",
+                      value: formatPercent(getObj(classificationOutput, "confidence_score") ?? confidence),
+                    },
+                    {
+                      label: "Recommended Decision",
+                      value: String(
+                        getObj(classificationOutput, "recommended_decision") ?? decision ?? "—",
+                      ),
+                    },
+                  ]}
+                />
+              </article>
             </section>
           ) : null}
 
@@ -950,30 +922,15 @@ export default function AnalysisDetailsPage() {
               <div className="analysis2-grid-2">
                 <article className="analysis2-block">
                   <h3>Predicted CDM summary</h3>
-                  <FieldRows
-                    rows={[
-                      { label: "Predicted CDM ID", value: formatGenericValue("id", predictedRow?.id) },
-                      { label: "Event ID", value: formatGenericValue("event_id", predictedRow?.event_id) },
-                      {
-                        label: "Creation Date",
-                        value: formatGenericValue("creation_date", predictedRow?.creation_date ?? predictedRow?.created_at),
-                      },
-                      { label: "TCA", value: formatGenericValue("tca", predictedRow?.tca) },
-                      { label: "Time To TCA", value: formatGenericValue("time_to_tca", predictedRow?.time_to_tca) },
-                      {
-                        label: "Source Last CDM ID",
-                        value: formatGenericValue("source_actual_event_last_cdm_id", predictedRow?.source_actual_event_last_cdm_id),
-                      },
-                      {
-                        label: "Prediction Model Version",
-                        value: formatGenericValue("prediction_model_version", predictedRow?.prediction_model_version ?? getObj(predictionOutput, "model_version")),
-                      },
-                      {
-                        label: "Overall Uncertainty",
-                        value: formatGenericValue("overall_uncertainty", predictedRow?.overall_uncertainty ?? getObj(predictionOutput, "overall_uncertainty")),
-                      },
-                    ]}
-                  />
+                  {predictedCdmSummaryRows.length === 0 ? (
+                    <p className="analysis2-muted">No predicted CDM record loaded.</p>
+                  ) : (
+                    <FieldRows
+                      rows={predictedCdmSummaryRows}
+                      copyableKeys={["predicted_cdm_id", "source_last_cdm_id"]}
+                      longIdKeys={predictedSummaryLongIdKeys}
+                    />
+                  )}
                 </article>
                 <article className="analysis2-block">
                   <h3>Predicted risk & geometry</h3>
@@ -1033,77 +990,6 @@ export default function AnalysisDetailsPage() {
                       "object2_ct_t",
                     ].map((k) => ({ label: k, value: formatGenericValue(k, predictedRow?.[k]) }))}
                   />
-                </article>
-                <article className="analysis2-block">
-                  <h3>Prediction output</h3>
-                  <FieldRows
-                    rows={[
-                      { label: "MC Passes", value: formatGenericValue("mc_passes", getObj(predictionOutput, "mc_passes")) },
-                      { label: "Max Seq Len", value: formatGenericValue("max_seq_len", getObj(predictionOutput, "max_seq_len")) },
-                      { label: "Model Version", value: formatGenericValue("model_version", getObj(predictionOutput, "model_version")) },
-                      { label: "Input CDM Count", value: formatGenericValue("input_cdm_count", getObj(predictionOutput, "input_cdm_count")) },
-                      {
-                        label: "First Input Creation Date",
-                        value: formatGenericValue("first_input_creation_date", getObj(predictionOutput, "first_input_creation_date")),
-                      },
-                      {
-                        label: "Last Input Creation Date",
-                        value: formatGenericValue("last_input_creation_date", getObj(predictionOutput, "last_input_creation_date")),
-                      },
-                      {
-                        label: "Padded Rows",
-                        value: formatGenericValue("padded_rows", getObj(getObj(predictionOutput, "preprocessing_summary"), "padded_rows")),
-                      },
-                      {
-                        label: "Valid Input Rows",
-                        value: formatGenericValue("valid_input_rows", getObj(getObj(predictionOutput, "preprocessing_summary"), "valid_input_rows")),
-                      },
-                      {
-                        label: "Used Rows After Truncation",
-                        value: formatGenericValue(
-                          "used_rows_after_truncation",
-                          getObj(getObj(predictionOutput, "preprocessing_summary"), "used_rows_after_truncation"),
-                        ),
-                      },
-                    ]}
-                  />
-                </article>
-                <article className="analysis2-block">
-                  <h3>Feature uncertainty</h3>
-                  <div className="analysis2-copy-row">
-                    <button
-                      type="button"
-                      className={`analysis2-btn ${uncertaintyMode === "std" ? "is-active" : ""}`}
-                      onClick={() => setUncertaintyMode("std")}
-                    >
-                      Std
-                    </button>
-                    <button
-                      type="button"
-                      className={`analysis2-btn ${uncertaintyMode === "variance" ? "is-active" : ""}`}
-                      onClick={() => setUncertaintyMode("variance")}
-                    >
-                      Variance
-                    </button>
-                  </div>
-                  <div className="analysis2-table-wrap">
-                    <table className="analysis2-table">
-                      <thead>
-                        <tr>
-                          <th>Feature</th>
-                          <th>{uncertaintyMode === "variance" ? "Variance" : "Std"}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {shownUncertaintyRows.map((r) => (
-                          <tr key={r.feature}>
-                            <td>{r.feature}</td>
-                            <td>{r.value == null ? "—" : r.value.toExponential(3)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
                 </article>
               </div>
             </section>

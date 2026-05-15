@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchCdmValidationErrorsByUploadId } from "../../services/cdmUploadApi.js";
-import { fetchCdmUploadJobEventsByUploadId } from "../../services/cdmUploadApi.js";
+import { formatUtc } from "../../data/cdmEventData.js";
+import {
+  fetchCdmUploadById,
+  fetchCdmValidationErrorsByUploadId,
+  fetchCdmUploadJobEventsByUploadId,
+} from "../../services/cdmUploadApi.js";
 import "./DashboardComponents.css";
 
 const VALIDATION_ERR_PAGE_SIZE = 10;
@@ -17,12 +21,14 @@ export default function CdmValidationErrorsModal({ open, uploadId, uploadCode = 
   const [error, setError] = useState(/** @type {string|null} */ (null));
   const [rows, setRows] = useState(/** @type {Array<Record<string, unknown>>} */ ([]));
   const [events, setEvents] = useState(/** @type {Array<Record<string, unknown>>} */ ([]));
+  const [uploadRow, setUploadRow] = useState(/** @type {Record<string, unknown>|null} */ (null));
   const [errPage, setErrPage] = useState(1);
 
   useEffect(() => {
     if (!open || !uploadId) {
       setRows([]);
       setEvents([]);
+      setUploadRow(null);
       setError(null);
       setErrPage(1);
       return;
@@ -34,19 +40,22 @@ export default function CdmValidationErrorsModal({ open, uploadId, uploadCode = 
       setError(null);
       setErrPage(1);
       try {
-        const [errList, evList] = await Promise.all([
+        const [errList, evList, uploadMeta] = await Promise.all([
           fetchCdmValidationErrorsByUploadId(uploadId),
           fetchCdmUploadJobEventsByUploadId(uploadId),
+          fetchCdmUploadById(uploadId),
         ]);
         if (!cancelled) {
           setRows(errList);
           setEvents(evList);
+          setUploadRow(uploadMeta ?? null);
         }
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : String(e));
           setRows([]);
           setEvents([]);
+          setUploadRow(null);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -57,6 +66,11 @@ export default function CdmValidationErrorsModal({ open, uploadId, uploadCode = 
       cancelled = true;
     };
   }, [open, uploadId]);
+
+  const simpleIssueTypes = useMemo(
+    () => buildSimpleIssueTypes(uploadRow, events),
+    [uploadRow, events],
+  );
 
   const totalErrPages = Math.max(1, Math.ceil(rows.length / VALIDATION_ERR_PAGE_SIZE));
   const safeErrPage = Math.min(errPage, totalErrPages);
@@ -89,7 +103,7 @@ export default function CdmValidationErrorsModal({ open, uploadId, uploadCode = 
         <p className="dash-modal-meta">
           Upload ID:{" "}
           <span className="dash-mono">
-            {uploadCode ?? inferUploadCode(rows, events) ?? "—"}
+            {uploadCode ?? inferUploadCode(rows, events, uploadRow) ?? "—"}
           </span>
         </p>
 
@@ -103,6 +117,19 @@ export default function CdmValidationErrorsModal({ open, uploadId, uploadCode = 
 
         {!loading && !error ? (
           <>
+            <h3 className="dash-modal-section-title">Import issues</h3>
+            {simpleIssueTypes.length === 0 ? (
+              <p className="dash-modal-body dash-import-issue-empty">
+                No import-level issues recorded for this upload.
+              </p>
+            ) : (
+              <ul className="dash-import-issue-types">
+                {simpleIssueTypes.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+            )}
+
             <h3 className="dash-modal-section-title">Row-level validation errors</h3>
             <div className="dash-modal-table-wrap">
               <table className="dash-table dash-modal-table">
@@ -168,7 +195,7 @@ export default function CdmValidationErrorsModal({ open, uploadId, uploadCode = 
                 events.map((ev, i) => (
                   <li key={i} className="dash-job-event">
                     <span className="dash-mono dash-job-event-time">
-                      {formatTs(ev.created_at)}
+                      {formatUtc(ev.created_at)}
                     </span>
                     <span className="dash-job-event-type">
                       {String(ev.event_type ?? "—")}
@@ -185,14 +212,88 @@ export default function CdmValidationErrorsModal({ open, uploadId, uploadCode = 
   );
 }
 
-function formatTs(v) {
-  if (v == null) return "—";
-  const d = new Date(/** @type {string | number} */ (v));
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toISOString().replace("T", " ").slice(0, 19);
+/**
+ * Distinct high-level issue labels only (no long error text).
+ * @param {Record<string, unknown>|null|undefined} uploadRow
+ * @param {Array<Record<string, unknown>>} events
+ * @returns {string[]}
+ */
+function buildSimpleIssueTypes(uploadRow, events) {
+  /** @type {Set<string>} */
+  const types = new Set();
+  const status = String(uploadRow?.status ?? "").toLowerCase();
+  const summaryRaw = uploadRow?.error_summary != null ? String(uploadRow.error_summary).trim() : "";
+  const summaryLower = summaryRaw.toLowerCase();
+
+  if (summaryRaw) {
+    types.add(categorizePipelineIssue(summaryRaw, null));
+  }
+
+  const evList = Array.isArray(events) ? events : [];
+  for (const ev of evList) {
+    if (!ev || typeof ev !== "object") continue;
+    const eventType = String(ev.event_type ?? "");
+    if (!shouldIncludeJobEvent(eventType, status)) continue;
+    const msg = String(ev.message ?? "").trim();
+    if (msg && summaryLower && msg.toLowerCase() === summaryLower) continue;
+    types.add(categorizePipelineIssue(msg || "Event", eventType));
+  }
+
+  return [...types].sort((a, b) => a.localeCompare(b));
 }
 
-function inferUploadCode(rows, events) {
+/**
+ * @param {string} eventType
+ * @param {string} uploadStatus
+ */
+function shouldIncludeJobEvent(eventType, uploadStatus) {
+  const t = eventType.toLowerCase();
+  if (t === "processing_started") return false;
+  if (t === "completed" && uploadStatus === "completed") return false;
+  return true;
+}
+
+/**
+ * @param {string} message
+ * @param {string|null} eventType
+ */
+function categorizePipelineIssue(message, eventType) {
+  const m = message.toLowerCase();
+  const t = (eventType ?? "").toLowerCase();
+
+  if (t === "validation_failed" || t === "header_validation_failed") {
+    if (/no data|empty|header only|header-only|no rows/i.test(m)) {
+      return "Empty or incomplete file";
+    }
+    return "CSV schema / headers";
+  }
+  if (/empty|header only|no data rows|no data row|header-only|no rows in csv/i.test(m)) {
+    return "Empty or incomplete file";
+  }
+  if (/too large|maximum|max.*size|file.*size|exceed.*limit|limit.*size/i.test(m)) {
+    return "File size";
+  }
+  if (/\.csv|wrong format|not a csv|mime|content type/i.test(m)) {
+    return "File type";
+  }
+  if (/network|storage|download|upload failed|401|403|object not found/i.test(m)) {
+    return "Storage / transfer";
+  }
+  if (t === "failed") return "Processing error";
+  if (t === "completed") return "Completion";
+  if (t === "processing_started") return "Job lifecycle";
+  return "Import / pipeline";
+}
+
+function inferUploadCode(rows, events, uploadRow) {
+  if (
+    uploadRow &&
+    typeof uploadRow === "object" &&
+    uploadRow.upload_code != null &&
+    String(uploadRow.upload_code).trim() !== ""
+  ) {
+    return String(uploadRow.upload_code);
+  }
   const firstErr = rows?.[0];
   if (
     firstErr &&

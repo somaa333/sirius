@@ -15,7 +15,8 @@ import "./AnalysisProgressModal.css";
  * @param {'running' | 'success' | 'error'} props.phase
  * @param {'actual' | 'predicted'} props.variant
  * @param {string} props.eventId
- * @param {string | null} props.assessmentId
+ * @param {string | null} props.assessmentDisplayCode Human-readable id (e.g. RA16)
+ * @param {string | null} props.assessmentRouteId DB uuid for details route
  * @param {string | null} props.errorMessage
  * @param {number} props.simulatedPercent 0–100; while running creeps toward ~92; 100 on success
  * @param {() => void} props.onClose
@@ -25,7 +26,8 @@ export default function AnalysisProgressModal({
   phase,
   variant,
   eventId,
-  assessmentId,
+  assessmentDisplayCode,
+  assessmentRouteId,
   errorMessage,
   simulatedPercent,
   onClose,
@@ -147,19 +149,22 @@ export default function AnalysisProgressModal({
         {phase === "success" ? (
           <div className="analysis-progress-modal__footer analysis-progress-modal__footer--success">
             <p className="analysis-progress-detail">
-              {assessmentId ? (
+              {assessmentDisplayCode ? (
                 <>
-                  Assessment ID: <span className="dash-mono">{assessmentId}</span>
+                  Assessment ID:{" "}
+                  <span className="analysis-progress-assessment-id">
+                    {assessmentDisplayCode}
+                  </span>
                 </>
               ) : (
                 "Assessment saved."
               )}
             </p>
             <div className="analysis-progress-actions">
-              {assessmentId ? (
+              {assessmentRouteId ? (
                 <Link
                   className="dash-btn dash-btn--primary"
-                  to={`/analysis/${encodeURIComponent(assessmentId)}`}
+                  to={`/analysis/${encodeURIComponent(assessmentRouteId)}`}
                   onClick={onClose}
                 >
                   View Assessment Details

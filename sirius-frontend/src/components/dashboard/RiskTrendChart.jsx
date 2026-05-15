@@ -8,6 +8,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import InfoTooltip from "./InfoTooltip.jsx";
 import "./DashboardComponents.css";
 
 const CHART_COLORS = {
@@ -19,11 +20,13 @@ const CHART_COLORS = {
  * @param {object} props
  * @param {{ date: string, highRisk: number, lowRisk: number }[]} props.data
  * @param {string} [props.title]
+ * @param {string} [props.infoText] Optional help tooltip next to title
  * @param {string} [props.className]
  */
 export default function RiskTrendChart({
   data,
   title = "Risk trend — collision event counts",
+  infoText = null,
   className = "",
 }) {
   const hasData = Array.isArray(data) && data.length > 0;
@@ -31,7 +34,12 @@ export default function RiskTrendChart({
   return (
     <div className={`dash-chart-card ${className}`.trim()}>
       <div className="dash-chart-header">
-        <h2 className="dash-chart-title">{title}</h2>
+        <div className="dash-chart-title-row">
+          <h2 className="dash-chart-title">{title}</h2>
+          {infoText ? (
+            <InfoTooltip text={infoText} label={title} wide />
+          ) : null}
+        </div>
       </div>
       <div className="dash-chart-body">
         {!hasData ? (

@@ -5,6 +5,7 @@ import DashboardPageLayout from "../components/dashboard/DashboardPageLayout.jsx
 import CdmUploadHistory from "../components/dashboard/CdmUploadHistory.jsx";
 import CdmValidationErrorsModal from "../components/dashboard/CdmValidationErrorsModal.jsx";
 import { useToast } from "../components/toast/ToastProvider.jsx";
+import { MAX_CDM_FILE_SIZE_LABEL } from "../constants/cdmUploadLimits.js";
 import { uploadAndQueueCdm, validateCsvFile } from "../services/cdmUploadQueue.js";
 import { pollCdmUploadUntilTerminal } from "../services/cdmUploadPolling.js";
 import { fetchRecentCdmUploadsForUser } from "../services/cdmUploadApi.js";
@@ -78,7 +79,7 @@ export default function CdmUpload() {
     async (file) => {
       if (cdmUploadBusy) return;
 
-      const validation = validateCsvFile(file);
+      const validation = await validateCsvFile(file);
       if (!validation.ok) {
         pushToast(validation.error, "error");
         setFileInputKey((k) => k + 1);
@@ -222,7 +223,7 @@ export default function CdmUpload() {
   return (
     <>
       <DashboardPageLayout title="Upload CDM">
-        <section className="cdm-upload-hero" aria-label="Upload CDM files">
+        <section className="cdm-upload-hero" id="upload-area" aria-label="Upload CDM files">
           <input
             key={fileInputKey}
             ref={fileInputRef}
@@ -294,27 +295,29 @@ export default function CdmUpload() {
                   Select file
                 </span>
                 <p className="cdm-upload-help">
-                  Supported: CSV only. Max size: 50 MB.
+                  Supported: CSV only. Max size: {MAX_CDM_FILE_SIZE_LABEL}.
                 </p>
               </>
             )}
           </button>
         </section>
 
-        <CdmUploadHistory
-          rows={uploadHistoryRows}
-          loading={uploadHistoryLoading}
-          error={uploadHistoryError}
-          selectedUploadId={selectedUploadId}
-          onViewValidationErrors={(id) => {
-            const row = uploadHistoryRows.find((r) => String(r.id ?? "") === id);
-            setErrorsModalUploadId(id);
-            setErrorsModalUploadCode(
-              row?.upload_code == null ? null : String(row.upload_code),
-            );
-            setErrorsModalOpen(true);
-          }}
-        />
+        <section id="upload-history" aria-label="CDM Upload History">
+          <CdmUploadHistory
+            rows={uploadHistoryRows}
+            loading={uploadHistoryLoading}
+            error={uploadHistoryError}
+            selectedUploadId={selectedUploadId}
+            onViewValidationErrors={(id) => {
+              const row = uploadHistoryRows.find((r) => String(r.id ?? "") === id);
+              setErrorsModalUploadId(id);
+              setErrorsModalUploadCode(
+                row?.upload_code == null ? null : String(row.upload_code),
+              );
+              setErrorsModalOpen(true);
+            }}
+          />
+        </section>
       </DashboardPageLayout>
 
       <CdmValidationErrorsModal

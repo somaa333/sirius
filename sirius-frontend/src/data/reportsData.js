@@ -296,6 +296,22 @@ export async function fetchReportHistory(userId) {
   return Array.isArray(data) ? data : [];
 }
 
+/**
+ * Number of persisted reports for this user (matches Reports history / `reports.created_by`).
+ * @param {string} userId
+ * @returns {Promise<number>}
+ */
+export async function countReportsForUser(userId) {
+  const id = String(userId ?? "").trim();
+  if (!id) return 0;
+  const { count, error } = await supabase
+    .from("reports")
+    .select("*", { count: "exact", head: true })
+    .eq("created_by", id);
+  if (error) throw error;
+  return typeof count === "number" ? count : 0;
+}
+
 export async function createReportHistoryRow(payload) {
   const { data, error } = await supabase
     .from("reports")
@@ -321,14 +337,206 @@ export async function updateReportHistoryFileType(reportRow, fileType, userId) {
   return data;
 }
 
-export async function deleteReportHistoryRow(reportRow, userId) {
-  const key = getReportPrimaryKey(reportRow);
-  if (!key) return;
-  const { error } = await supabase
+const REPORT_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Stable key for selection / delete (prefer internal uuid).
+ * @param {Record<string, unknown> | null | undefined} row
+ */
+export function getReportHistoryRowKey(row) {
+  if (!row || typeof row !== "object") return "";
+  const id = row.id;
+  if (id != null && REPORT_UUID_RE.test(String(id))) return String(id).trim();
+  const code = row.report_id;
+  if (code != null && String(code).trim()) return String(code).trim();
+  return "";
+}
+
+/**
+ * Human-readable report code for display (e.g. RP4).
+ * @param {Record<string, unknown> | null | undefined} row
+ */
+export function getReportDisplayId(row) {
+  if (!row || typeof row !== "object") return "—";
+  const code = row.report_id;
+  if (code != null && String(code).trim()) return String(code).trim();
+  const id = row.id;
+  if (id != null && String(id).trim()) return String(id).trim();
+  return "—";
+}
+
+/**
+ * @param {unknown} payload
+ */
+function normalizeRpcPayload(payload) {
+  if (payload == null) return null;
+  if (typeof payload === "string") {
+    try {
+      return JSON.parse(payload);
+    } catch {
+      return null;
+    }
+  }
+  return payload;
+}
+
+/**
+ * @param {unknown} payload
+ */
+function isRpcOk(payload) {
+  const body = normalizeRpcPayload(payload);
+  if (!body || typeof body !== "object") return false;
+  return body.ok === true || body.ok === "true";
+}
+
+/**
+ * @param {unknown} error
+ * @returns {Error}
+ */
+function mapReportDeleteRpcError(error) {
+  const code = String(error?.code ?? "");
+  const message = String(error?.message ?? "Could not delete report.");
+  if (code === "PGRST202" || /delete_report/i.test(message)) {
+    return new Error(
+      "Delete is not configured on the database yet. Apply the Supabase migration `20260515130000_delete_report.sql`, then try again.",
+    );
+  }
+  return error instanceof Error ? error : new Error(message);
+}
+
+/**
+ * @param {unknown} payload
+ */
+function assertReportDeleteRpcOk(payload) {
+  if (isRpcOk(payload)) return;
+  const body = normalizeRpcPayload(payload);
+  const reason = String(body?.reason ?? "");
+  if (reason === "not_found") {
+    throw new Error("Report not found or you do not have permission to delete it.");
+  }
+  throw new Error("Report could not be deleted.");
+}
+
+/**
+ * @param {Record<string, unknown>} reportRow
+ * @param {string} userId
+ * @returns {Promise<string | null>}
+ */
+async function resolveReportIdForDelete(reportRow, userId) {
+  const rowKey = getReportHistoryRowKey(reportRow);
+  if (!rowKey) return null;
+
+  if (REPORT_UUID_RE.test(rowKey)) {
+    const { data, error } = await supabase
+      .from("reports")
+      .select("id")
+      .eq("id", rowKey)
+      .eq("created_by", userId)
+      .maybeSingle();
+    if (error) throw error;
+    return data?.id ? String(data.id) : null;
+  }
+
+  const { data, error } = await supabase
+    .from("reports")
+    .select("id")
+    .eq("report_id", rowKey)
+    .eq("created_by", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.id ? String(data.id) : null;
+}
+
+/**
+ * @param {string} pk
+ * @param {string} userId
+ */
+async function deleteReportByPk(pk, userId) {
+  const { data, error } = await supabase
     .from("reports")
     .delete()
-    .eq(key.column, key.value)
-    .eq("created_by", userId);
+    .eq("id", pk)
+    .eq("created_by", userId)
+    .select("id");
+
   if (error) throw error;
+  if (data?.length) return;
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc("delete_report", { p_id: pk });
+  if (rpcError) throw mapReportDeleteRpcError(rpcError);
+  assertReportDeleteRpcOk(rpcData);
+}
+
+/**
+ * @param {Record<string, unknown>} reportRow
+ * @param {string} userId
+ */
+export async function deleteReportHistoryRow(reportRow, userId) {
+  const pk = await resolveReportIdForDelete(reportRow, userId);
+  if (!pk) {
+    throw new Error("Report not found or you do not have permission to delete it.");
+  }
+
+  await deleteReportByPk(pk, userId);
+}
+
+/**
+ * @param {Record<string, unknown>[]} reportRows
+ * @param {string} userId
+ */
+export async function deleteReportHistoryRows(reportRows, userId) {
+  const rows = Array.isArray(reportRows) ? reportRows : [];
+  if (!rows.length) {
+    throw new Error("No reports selected to delete.");
+  }
+
+  const pks = [];
+  for (const row of rows) {
+    const pk = await resolveReportIdForDelete(row, userId);
+    if (pk) pks.push(pk);
+  }
+  const uniquePks = [...new Set(pks)];
+  if (!uniquePks.length) {
+    throw new Error("No reports could be found to delete.");
+  }
+
+  const { data, error } = await supabase
+    .from("reports")
+    .delete()
+    .in("id", uniquePks)
+    .eq("created_by", userId)
+    .select("id");
+
+  if (error) throw error;
+
+  const deletedCount = data?.length ?? 0;
+  if (deletedCount === uniquePks.length) return;
+
+  const remaining = uniquePks.filter((id) => !(data ?? []).some((row) => String(row.id) === id));
+  if (!remaining.length) return;
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc("delete_reports", {
+    p_ids: remaining,
+  });
+  if (rpcError) throw mapReportDeleteRpcError(rpcError);
+
+  if (isRpcOk(rpcData)) return;
+
+  const body = normalizeRpcPayload(rpcData);
+  const reason = String(body?.reason ?? "");
+  const rpcDeleted = Number(body?.deleted ?? 0);
+  const requested = Number(body?.requested ?? remaining.length);
+  const totalDeleted = deletedCount + rpcDeleted;
+
+  if (reason === "partial" && totalDeleted > 0) {
+    throw new Error(`Only ${totalDeleted} of ${uniquePks.length} selected reports were deleted.`);
+  }
+  if (totalDeleted === 0) {
+    throw new Error("No reports could be deleted. They may not exist or you may not have permission.");
+  }
+  if (totalDeleted < uniquePks.length) {
+    throw new Error(`Only ${totalDeleted} of ${uniquePks.length} selected reports were deleted.`);
+  }
 }
 

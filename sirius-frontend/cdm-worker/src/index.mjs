@@ -15,7 +15,8 @@ async function loop() {
       }
       await runClaimedJob(job);
     } catch (e) {
-      console.error("worker loop error", e);
+      const msg = e instanceof Error ? e.message : "Unknown worker loop error";
+      console.error("worker loop error:", msg);
       await new Promise((r) => setTimeout(r, IDLE_MS));
     }
   }

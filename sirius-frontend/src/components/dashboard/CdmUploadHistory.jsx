@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatUtc } from "../../data/cdmEventData.js";
+import { TOOLTIP_CDM_UPLOAD_HISTORY } from "../../constants/helpTooltips.js";
+import InfoTooltip from "./InfoTooltip.jsx";
 import "./DashboardComponents.css";
 
 /**
@@ -58,10 +61,13 @@ export default function CdmUploadHistory({
   return (
     <section className="dash-upload-history" aria-label="CDM Upload History">
       <div className="dash-upload-history-head">
-        <h2 className="dash-upload-history-title">
-          CDM Upload History
-          <span className="dash-table-count"> ({rows.length})</span>
-        </h2>
+        <div className="dash-upload-history-title-row">
+          <h2 className="dash-upload-history-title">
+            CDM Upload History
+            <span className="dash-table-count"> ({rows.length})</span>
+          </h2>
+          <InfoTooltip text={TOOLTIP_CDM_UPLOAD_HISTORY} label="CDM Upload History" wide />
+        </div>
       </div>
 
       {error ? (
@@ -130,7 +136,7 @@ export default function CdmUploadHistory({
                         {formatStatusText(r.status)}
                       </span>
                     </td>
-                    <td className="dash-mono">{formatTs(r.created_at)}</td>
+                    <td className="dash-mono">{formatUtc(r.created_at)}</td>
                     <td className="dash-mono">{formatTotalRows(r.total_rows)}</td>
                     <td>
                       {r.progress_percent != null
@@ -225,13 +231,6 @@ export default function CdmUploadHistory({
       ) : null}
     </section>
   );
-}
-
-function formatTs(v) {
-  if (v == null) return "—";
-  const d = new Date(/** @type {string | number} */ (v));
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toISOString().replace("T", " ").slice(0, 19);
 }
 
 function formatPair(a, b) {

@@ -12,6 +12,7 @@ process.on("SIGTERM", () => {
 });
 
 runWorkerLoop(ac.signal).catch((e) => {
-  console.error("[worker] fatal", e);
+  const msg = e instanceof Error ? e.message : "Unknown fatal error";
+  console.error("[worker] fatal:", msg);
   process.exit(1);
 });

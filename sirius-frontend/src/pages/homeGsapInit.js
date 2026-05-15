@@ -145,7 +145,7 @@ export function initHomeGsap(container) {
     heroTl.to(heroActions, { opacity: 1, y: 0, duration: 1.05 }, "-=0.5");
 
     /* About — each .home-animate-item, trigger = element */
-    container.querySelectorAll("#about .home-animate-item").forEach((el) => bindScrollReveal(el));
+    container.querySelectorAll("#why-it-matters .home-animate-item").forEach((el) => bindScrollReveal(el));
 
     /* Capabilities */
     container
@@ -154,11 +154,11 @@ export function initHomeGsap(container) {
 
     /* Environment */
     container
-      .querySelectorAll("#environment .home-animate-item")
+      .querySelectorAll("#space-context .home-animate-item")
       .forEach((el) => bindScrollReveal(el));
 
     /* Pipeline */
-    const flowSection = container.querySelector("#flow");
+    const flowSection = container.querySelector("#pipeline");
     const flowRoot = container.querySelector(".home-flow");
     if (flowSection && flowRoot) {
       flowRoot.style.setProperty("--flow-line-progress", "0");
@@ -229,7 +229,7 @@ export function initHomeGsap(container) {
     }
 
     /* Contact — panel + each inner .home-animate-item */
-    container.querySelectorAll("#contact .home-animate-item").forEach((el) => bindScrollReveal(el));
+    container.querySelectorAll("#collaboration .home-animate-item").forEach((el) => bindScrollReveal(el));
 
     /* Footer — each line */
     container.querySelectorAll(".home-footer .home-animate-item").forEach((el) => bindScrollReveal(el));

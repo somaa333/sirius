@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+
 /**
  * @param {object} props
  * @param {Array<Record<string, unknown>>} props.operators
@@ -15,8 +17,35 @@ export default function AdminOperatorsTable({
   onEdit,
   onDelete,
 }) {
+  const [openMenuOperatorId, setOpenMenuOperatorId] = useState(
+    /** @type {string | null} */ (null),
+  );
+  const menuRef = useRef(/** @type {HTMLDivElement | null} */ (null));
+
+  useEffect(() => {
+    if (!openMenuOperatorId) return;
+    const onDocMouseDown = (e) => {
+      const root = menuRef.current;
+      if (root && !root.contains(/** @type {Node} */ (e.target))) {
+        setOpenMenuOperatorId(null);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpenMenuOperatorId(null);
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [openMenuOperatorId]);
+
   return (
-    <section className="dash-table-section" aria-labelledby="admin-operators-heading">
+    <section
+      className="dash-table-section dash-table-section--admin-operators"
+      aria-labelledby="admin-operators-heading"
+    >
       <div className="dash-table-head">
         <div>
           <h2 id="admin-operators-heading" className="dash-table-title">
@@ -38,11 +67,21 @@ export default function AdminOperatorsTable({
           <table className="dash-table">
             <thead>
               <tr>
-                <th scope="col">Full name</th>
-                <th scope="col">Email</th>
-                <th scope="col">Organization</th>
-                <th scope="col">Public ID</th>
-                <th scope="col">Actions</th>
+                <th scope="col" className="dash-table-cell--center">
+                  Full name
+                </th>
+                <th scope="col" className="dash-table-cell--center">
+                  Email
+                </th>
+                <th scope="col" className="dash-table-cell--center">
+                  Organization
+                </th>
+                <th scope="col" className="dash-table-cell--center">
+                  Public ID
+                </th>
+                <th scope="col" className="dash-table-cell--center">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -53,39 +92,83 @@ export default function AdminOperatorsTable({
                   </td>
                 </tr>
               ) : (
-                operators.map((op) => (
-                  <tr key={String(op.id)} className="dash-table-row">
-                    <td>{op.full_name ?? "—"}</td>
-                    <td>{op.email ?? "—"}</td>
-                    <td>{op.organization ?? "—"}</td>
-                    <td className="dash-mono">{op.public_id ?? "—"}</td>
-                    <td>
-                      <div className="admin-operator-actions">
-                        <button
-                          type="button"
-                          className="dash-link"
-                          onClick={() => onView(op)}
+                operators.map((op) => {
+                  const rowId = String(op.id);
+                  return (
+                    <tr key={rowId} className="dash-table-row">
+                      <td className="dash-table-cell--center">{op.full_name ?? "—"}</td>
+                      <td className="dash-table-cell--center">{op.email ?? "—"}</td>
+                      <td className="dash-table-cell--center">{op.organization ?? "—"}</td>
+                      <td className="dash-mono dash-table-cell--center">{op.public_id ?? "—"}</td>
+                      <td className="dash-table-td--actions dash-table-cell--center">
+                        <div
+                          className="dash-row-menu-wrap"
+                          ref={openMenuOperatorId === rowId ? menuRef : null}
                         >
-                          View
-                        </button>
-                        <button
-                          type="button"
-                          className="dash-btn dash-btn--ghost dash-btn--sm"
-                          onClick={() => onEdit(op)}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="dash-btn dash-btn--ghost dash-btn--sm dash-btn--danger-ghost"
-                          onClick={() => onDelete(op)}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          <button
+                            type="button"
+                            className="dash-row-menu-trigger"
+                            aria-haspopup="menu"
+                            aria-expanded={openMenuOperatorId === rowId}
+                            aria-label={`Actions for ${op.full_name ?? op.email ?? "operator"}`}
+                            onClick={() =>
+                              setOpenMenuOperatorId((cur) => (cur === rowId ? null : rowId))
+                            }
+                          >
+                            <span aria-hidden="true">⋮</span>
+                          </button>
+                          {openMenuOperatorId === rowId ? (
+                            <ul
+                              className="dash-row-menu"
+                              role="menu"
+                              aria-label={`Actions for ${op.full_name ?? op.email ?? "operator"}`}
+                            >
+                              <li role="none">
+                                <button
+                                  type="button"
+                                  className="dash-row-menu-item"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setOpenMenuOperatorId(null);
+                                    onView(op);
+                                  }}
+                                >
+                                  View profile
+                                </button>
+                              </li>
+                              <li role="none">
+                                <button
+                                  type="button"
+                                  className="dash-row-menu-item"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setOpenMenuOperatorId(null);
+                                    onEdit(op);
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                              </li>
+                              <li role="none">
+                                <button
+                                  type="button"
+                                  className="dash-row-menu-item"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setOpenMenuOperatorId(null);
+                                    onDelete(op);
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </li>
+                            </ul>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

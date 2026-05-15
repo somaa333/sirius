@@ -3,7 +3,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext.jsx";
 import DashboardPageLayout from "../components/dashboard/DashboardPageLayout.jsx";
 import { useToast } from "../components/toast/ToastProvider.jsx";
-import { runActualAnalysis, runPredictedAnalysis } from "../services/analysisApi.js";
+import {
+  checkAnalysisServiceReachable,
+  runActualAnalysis,
+  runPredictedAnalysis,
+} from "../services/analysisApi.js";
 import RiskTrendChart from "../components/dashboard/RiskTrendChart.jsx";
 import RiskDistributionChart from "../components/dashboard/RiskDistributionChart.jsx";
 import {
@@ -23,6 +27,12 @@ import {
 import { formatUtc } from "../data/cdmEventData.js";
 import AnalysisProgressModal from "../components/analysis/AnalysisProgressModal.jsx";
 import { ANALYSIS_SIMULATED_CAP } from "../constants/analysisProgress.js";
+import {
+  TOOLTIP_RISK_ASSESSMENTS_TABLE,
+  TOOLTIP_RISK_DISTRIBUTION_CHART,
+  TOOLTIP_RISK_TREND_CHART,
+} from "../constants/helpTooltips.js";
+import InfoTooltip from "../components/dashboard/InfoTooltip.jsx";
 import "./AnalysisPage.css";
 import "../components/dashboard/DashboardComponents.css";
 
@@ -64,16 +74,25 @@ function computeStats(rows) {
 
 /**
  * @param {unknown} payload
- * @returns {string | null}
+ * @returns {{ displayCode: string | null, routeId: string | null }}
  */
-function getAssessmentDetailsIdFromRunResult(payload) {
-  if (!payload || typeof payload !== "object") return null;
+function getAssessmentIdsFromRunResult(payload) {
+  if (!payload || typeof payload !== "object") {
+    return { displayCode: null, routeId: null };
+  }
   const record = /** @type {Record<string, unknown>} */ (payload);
-  const uuid = record.assessment_uuid;
-  if (typeof uuid === "string" && uuid.trim()) return uuid.trim();
-  const code = record.assessment_id;
-  if (typeof code === "string" && code.trim()) return code.trim();
-  return null;
+  const code =
+    typeof record.assessment_id === "string" && record.assessment_id.trim()
+      ? record.assessment_id.trim()
+      : null;
+  const uuid =
+    typeof record.assessment_uuid === "string" && record.assessment_uuid.trim()
+      ? record.assessment_uuid.trim()
+      : null;
+  return {
+    displayCode: code ?? uuid,
+    routeId: uuid ?? code,
+  };
 }
 
 export default function AnalysisPage() {
@@ -133,7 +152,10 @@ export default function AnalysisPage() {
 
   /** @type {'idle' | 'running' | 'success' | 'error'} */
   const [analysisModalPhase, setAnalysisModalPhase] = useState("idle");
-  const [analysisResultAssessmentId, setAnalysisResultAssessmentId] = useState(
+  const [analysisResultDisplayCode, setAnalysisResultDisplayCode] = useState(
+    /** @type {string | null} */ (null),
+  );
+  const [analysisResultRouteId, setAnalysisResultRouteId] = useState(
     /** @type {string | null} */ (null),
   );
   const [analysisErrorMessage, setAnalysisErrorMessage] = useState(
@@ -209,7 +231,8 @@ export default function AnalysisPage() {
     const onKey = (e) => {
       if (e.key === "Escape" && analysisModalPhase !== "running") {
         setAnalysisModalPhase("idle");
-        setAnalysisResultAssessmentId(null);
+        setAnalysisResultDisplayCode(null);
+        setAnalysisResultRouteId(null);
         setAnalysisErrorMessage(null);
         setAnalysisSimPercent(0);
       }
@@ -512,7 +535,8 @@ export default function AnalysisPage() {
 
   const handleCloseAnalysisModal = () => {
     setAnalysisModalPhase("idle");
-    setAnalysisResultAssessmentId(null);
+    setAnalysisResultDisplayCode(null);
+    setAnalysisResultRouteId(null);
     setAnalysisErrorMessage(null);
     setAnalysisSimPercent(0);
   };
@@ -521,9 +545,15 @@ export default function AnalysisPage() {
     if (!path || !selectedEventId || analysisRunning) return;
     setAnalysisSimPercent(0);
     setAnalysisModalPhase("running");
-    setAnalysisResultAssessmentId(null);
+    setAnalysisResultDisplayCode(null);
+    setAnalysisResultRouteId(null);
     setAnalysisErrorMessage(null);
     try {
+      const serviceCheck = await checkAnalysisServiceReachable();
+      if (!serviceCheck.ok) {
+        throw new Error(serviceCheck.message);
+      }
+
       let runResult = null;
       if (path === "actual") {
         runResult = await runActualAnalysis(selectedEventId, user.id);
@@ -533,8 +563,9 @@ export default function AnalysisPage() {
       await loadAssessments();
       await loadEvents();
 
-      const detailsId = getAssessmentDetailsIdFromRunResult(runResult);
-      setAnalysisResultAssessmentId(detailsId);
+      const { displayCode, routeId } = getAssessmentIdsFromRunResult(runResult);
+      setAnalysisResultDisplayCode(displayCode);
+      setAnalysisResultRouteId(routeId);
       setAnalysisSimPercent(100);
       setAnalysisModalPhase("success");
       pushToast("Analysis completed successfully.", "success");
@@ -561,7 +592,8 @@ export default function AnalysisPage() {
           phase={analysisModalPhase}
           variant={path === "predicted" ? "predicted" : "actual"}
           eventId={selectedEventId}
-          assessmentId={analysisResultAssessmentId}
+          assessmentDisplayCode={analysisResultDisplayCode}
+          assessmentRouteId={analysisResultRouteId}
           errorMessage={analysisErrorMessage}
           simulatedPercent={analysisSimPercent}
           onClose={handleCloseAnalysisModal}
@@ -574,7 +606,7 @@ export default function AnalysisPage() {
         aria-label="Choose analysis path"
         ref={selectionZoneRef}
       >
-      <section className="analysis-path-row">
+      <section id="analysis-paths" className="analysis-path-row">
         <button
           type="button"
           className={`analysis-path-card ${path === "actual" ? "analysis-path-card--active" : ""}`}
@@ -867,55 +899,63 @@ export default function AnalysisPage() {
       ) : null}
       </section>
 
-      <section className="analysis-overview-head" aria-label="Analysis overview section">
-        <p className="analysis-overview-label">Analysis Overview</p>
-      </section>
+      <div id="analysis-overview">
+        <section className="analysis-overview-head" aria-label="Analysis overview section">
+          <p className="analysis-overview-label">Analysis Overview</p>
+        </section>
 
-      <section className="analysis-stats" aria-label="Assessment statistics">
-        <article className="analysis-stat-card">
-          <p className="analysis-stat-label">Total analyses</p>
-          <p className="analysis-stat-value">{stats.total}</p>
-        </article>
-        <article className="analysis-stat-card">
-          <p className="analysis-stat-label">Actual analyses</p>
-          <p className="analysis-stat-value">{stats.actual}</p>
-        </article>
-        <article className="analysis-stat-card">
-          <p className="analysis-stat-label">Predicted analyses</p>
-          <p className="analysis-stat-value">{stats.predicted}</p>
-        </article>
-        <article className="analysis-stat-card">
-          <p className="analysis-stat-label">Avg confidence</p>
-          <p className={`analysis-stat-value ${avgConfidenceTone}`}>
-            {stats.avgConfidence == null
-              ? "—"
-              : `${stats.avgConfidence.toFixed(1)}%`}
-          </p>
-        </article>
-      </section>
+        <section className="analysis-stats" aria-label="Assessment statistics">
+          <article className="analysis-stat-card">
+            <p className="analysis-stat-label">Total analyses</p>
+            <p className="analysis-stat-value">{stats.total}</p>
+          </article>
+          <article className="analysis-stat-card">
+            <p className="analysis-stat-label">Actual analyses</p>
+            <p className="analysis-stat-value">{stats.actual}</p>
+          </article>
+          <article className="analysis-stat-card">
+            <p className="analysis-stat-label">Predicted analyses</p>
+            <p className="analysis-stat-value">{stats.predicted}</p>
+          </article>
+          <article className="analysis-stat-card">
+            <p className="analysis-stat-label">Avg confidence</p>
+            <p className={`analysis-stat-value ${avgConfidenceTone}`}>
+              {stats.avgConfidence == null
+                ? "—"
+                : `${stats.avgConfidence.toFixed(1)}%`}
+            </p>
+          </article>
+        </section>
 
-      <div className="analysis-chart-grid">
-        <RiskTrendChart
-          data={trendData}
-          title="Risk trend — user assessments (last 30 points)"
-          className="analysis-stat-card analysis-chart-card"
-        />
-        <RiskDistributionChart
-          data={distributionData}
-          className="analysis-stat-card analysis-chart-card"
-        />
+        <div className="analysis-chart-grid">
+          <RiskTrendChart
+            data={trendData}
+            title="Risk trend — user assessments (last 30 points)"
+            infoText={TOOLTIP_RISK_TREND_CHART}
+            className="analysis-stat-card analysis-chart-card"
+          />
+          <RiskDistributionChart
+            data={distributionData}
+            infoText={TOOLTIP_RISK_DISTRIBUTION_CHART}
+            className="analysis-stat-card analysis-chart-card"
+          />
+        </div>
       </div>
 
       <section
+        id="risk-assessments-table"
         className="analysis-panel analysis-panel--assessments dash-table-section dash-table-section--cdm-events"
         aria-label="Risk assessments"
       >
         <div className="dash-table-head">
           <div>
-            <h2 className="dash-table-title">
-              Risk Assessments
-              <span className="dash-table-count"> ({filteredAssessments.length})</span>
-            </h2>
+            <div className="dash-table-title-row">
+              <h2 className="dash-table-title">
+                Risk Assessments
+                <span className="dash-table-count"> ({filteredAssessments.length})</span>
+              </h2>
+              <InfoTooltip text={TOOLTIP_RISK_ASSESSMENTS_TABLE} label="Risk Assessments table" wide />
+            </div>
           </div>
           <div className="dash-table-toolbar-stack">
             <div className="dash-table-controls dash-table-controls--events">

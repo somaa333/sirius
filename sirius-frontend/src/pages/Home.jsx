@@ -55,7 +55,7 @@ export default function Home() {
         <Breadcrumbs />
 
         {/* Hero */}
-        <section className="home-section home-hero home-animate-section" id="hero">
+        <section className="home-section home-hero home-animate-section" id="sirius-overview">
           <div className="home-hero-mesh" aria-hidden />
           <div className="home-shell home-hero-shell">
             <div className="home-hero-text">
@@ -74,14 +74,14 @@ export default function Home() {
                 Smarter decisions for a crowded orbit
               </h2>
               <p className="home-hero-body home-animate-item home-animate-delay-4">
-                AI-assisted risk assessment from CDMs—so operators can prioritize conjunctions and
+                AI-assisted risk assessment from CDMs, so operators can prioritize conjunctions and
                 act with confidence.
               </p>
               <div className="home-hero-actions home-animate-item home-animate-delay-5">
                 <button
                   type="button"
                   className="home-btn home-btn-primary"
-                  onClick={() => scrollToSection("about")}
+                  onClick={() => scrollToSection("why-it-matters")}
                 >
                   Explore the platform
                 </button>
@@ -96,7 +96,7 @@ export default function Home() {
         </section>
 
         {/* About */}
-        <section className="home-section home-band home-about home-animate-section" id="about">
+        <section className="home-section home-band home-about home-animate-section" id="why-it-matters">
           <div className="home-shell home-about-shell">
             <div className="home-about-text">
               <p className="home-section-eyebrow home-animate-item">Why it matters</p>
@@ -105,7 +105,7 @@ export default function Home() {
               </h2>
               <p className="home-body home-animate-item home-animate-delay-2">
                 More objects in orbit means more close approaches. SIRIUS helps teams monitor
-                conjunctions and quantify risk with models tuned to CDM data—not spreadsheets.
+                conjunctions and quantify risk with models tuned to CDM data.
               </p>
               <p className="home-body home-animate-item home-animate-delay-3">
                 You get <span className="home-highlight">clear risk classes</span> and{" "}
@@ -138,16 +138,16 @@ export default function Home() {
               Everything in one workflow
             </h2>
             <p className="home-section-intro home-animate-item home-animate-delay-2">
-              From ingestion to prediction—aligned with how operators actually work.
+              From ingestion to prediction.
             </p>
-            <div className="home-grid home-grid-4">
+            <div className="home-grid home-grid-3">
               <article className="home-card home-animate-item home-animate-delay-1">
                 <span className="home-card-index" aria-hidden>
                   01
                 </span>
                 <h3 className="home-card-title">CDM monitoring</h3>
                 <p className="home-card-body">
-                  Surface high-risk events from incoming conjunction messages—focus where it
+                  Surface high-risk events from incoming conjunction messages and focus where it
                   counts.
                 </p>
               </article>
@@ -169,21 +169,12 @@ export default function Home() {
                   Anticipate upcoming conjunctions and watch risk evolve across planning windows.
                 </p>
               </article>
-              <article className="home-card home-animate-item home-animate-delay-4">
-                <span className="home-card-index" aria-hidden>
-                  04
-                </span>
-                <h3 className="home-card-title">Trajectory insight</h3>
-                <p className="home-card-body">
-                  Visualize orbits and scenarios to support maneuvers and what-if review.
-                </p>
-              </article>
             </div>
           </div>
         </section>
 
         {/* Environment — NASA APOD */}
-        <section className="home-section home-band home-environment home-animate-section" id="environment">
+        <section className="home-section home-band home-environment home-animate-section" id="space-context">
           <div className="home-shell">
             <p className="home-section-eyebrow home-animate-item">Space context</p>
             <h2 className="home-section-title home-animate-item home-animate-delay-1">
@@ -194,7 +185,7 @@ export default function Home() {
         </section>
 
         {/* Flow */}
-        <section className="home-section home-flow-section home-animate-section" id="flow">
+        <section className="home-section home-flow-section home-animate-section" id="pipeline">
           <div className="home-shell home-flow-shell">
             <div className="home-flow-header">
               <p className="home-section-eyebrow home-animate-item">Pipeline</p>
@@ -261,23 +252,12 @@ export default function Home() {
                   </div>
                 </div>
               </li>
-              <li className="home-flow-step home-flow-step--even home-animate-item home-animate-delay-6">
-                <div className="home-flow-step-inner">
-                  <span className="home-flow-step-index">6</span>
-                  <div className="home-flow-step-text">
-                    <h3 className="home-flow-step-title">Simulate trajectories</h3>
-                    <p className="home-flow-step-body">
-                      Visualize satellite motion and compare predicted vs actual scenarios.
-                    </p>
-                  </div>
-                </div>
-              </li>
             </ol>
           </div>
         </section>
 
         {/* Contact */}
-        <section className="home-section home-contact home-animate-section" id="contact">
+        <section className="home-section home-contact home-animate-section" id="collaboration">
           <div className="home-shell home-contact-inner">
             <div className="home-contact-panel">
               <p className="home-section-eyebrow home-animate-item">Collaborate</p>

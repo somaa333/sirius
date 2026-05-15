@@ -373,6 +373,11 @@
   visibility: visible;
 }
 
+.dash-info-tooltip--wide .dash-info-tooltip-popover {
+  max-width: min(340px, 88vw);
+  text-align: left;
+}
+
 /* Dashboard widgets row */
 .dash-widget-row {
   display: grid;
@@ -405,6 +410,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 6px;
 }
 
 .dash-chart-title {
@@ -412,6 +418,10 @@
   font-size: 0.98rem;
   font-weight: 700;
   color: #f1f5f9;
+}
+
+.dash-chart-title-row .dash-chart-title {
+  margin-bottom: 0;
 }
 
 .dash-chart-body {
@@ -711,11 +721,22 @@
   align-items: center;
 }
 
+.dash-table-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .dash-table-title {
   margin: 0 0 6px;
   font-size: 1.05rem;
   font-weight: 700;
   color: #f1f5f9;
+}
+
+.dash-table-title-row .dash-table-title {
+  margin-bottom: 0;
 }
 
 .dash-table-count {
@@ -1076,11 +1097,22 @@
   gap: 12px;
 }
 
+.dash-upload-history-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .dash-upload-history-title {
   margin: 0 0 6px;
   font-size: 1.05rem;
   font-weight: 700;
   color: #f1f5f9;
+}
+
+.dash-upload-history-title-row .dash-upload-history-title {
+  margin-bottom: 0;
 }
 
 .dash-upload-history-desc {
@@ -1182,14 +1214,6 @@
 
 .dash-upload-row--selected {
   background: rgba(88, 28, 135, 0.18);
-}
-
-/* Admin operators table — same row action pattern as dashboard tables */
-.admin-operator-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
 }
 
 /* Modal */
@@ -1296,6 +1320,41 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #94a3b8;
+}
+
+.dash-modal-section-lede {
+  margin: -4px 0 12px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #94a3b8;
+}
+
+.dash-import-issue-empty {
+  margin: 0 0 16px;
+  font-size: 0.88rem;
+  color: #94a3b8;
+}
+
+.dash-import-issue-types {
+  margin: 0 0 18px;
+  padding: 6px 12px;
+  list-style: none;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.dash-import-issue-types li {
+  padding: 5px 0;
+  font-size: 0.84rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #e2e8f0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.dash-import-issue-types li:last-child {
+  border-bottom: none;
 }
 
 .dash-modal-table-wrap {

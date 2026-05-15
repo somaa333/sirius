@@ -171,7 +171,9 @@ export async function processCdmJob(job: JobRow): Promise<void> {
     });
 
     hb = setInterval(() => {
-      heartbeat(uploadId).catch((e) => console.error("heartbeat", e));
+      heartbeat(uploadId).catch(() => {
+        console.error("[processor] heartbeat failed");
+      });
     }, config.heartbeatMs);
 
     const parser = createReadStream(tmpPath).pipe(buildParser());
@@ -356,7 +358,7 @@ export async function processCdmJob(job: JobRow): Promise<void> {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[processor] job ${uploadId} failed`, err);
+    console.error("[processor] CDM import job failed:", msg);
     await insertJobEvent(uploadId, "failed", msg, null);
     await finishJobRpc({
       uploadId,

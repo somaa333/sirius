@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { supabase } from "./supabaseClient";
 import { useAuth } from "./AuthContext.jsx";
 import { useToast } from "./components/toast/ToastProvider.jsx";
+import { userHasAnyVisibleCdmRecords } from "./data/cdmEventData.js";
 import Login from "./pages/Login";
 
 export default function App() {
@@ -11,6 +12,31 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [forgotBusy, setForgotBusy] = useState(false);
+  /** Resolved destination after checking whether the user has any visible CDMs (null = still resolving). */
+  const [postLoginPath, setPostLoginPath] = useState(/** @type {string | null} */ (null));
+
+  useEffect(() => {
+    if (!user?.id) {
+      setPostLoginPath(null);
+      return;
+    }
+
+    let cancelled = false;
+    setPostLoginPath(null);
+
+    (async () => {
+      try {
+        const hasCdms = await userHasAnyVisibleCdmRecords(user.id);
+        if (!cancelled) setPostLoginPath(hasCdms ? "/dashboard" : "/cdm-upload");
+      } catch {
+        if (!cancelled) setPostLoginPath("/dashboard");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const login = async (e) => {
     e.preventDefault();
@@ -53,9 +79,11 @@ export default function App() {
     return null;
   }
 
-  // Logged-in: redirect to dashboard
   if (user) {
-    return <Navigate to="/dashboard" replace />;
+    if (postLoginPath == null) {
+      return null;
+    }
+    return <Navigate to={postLoginPath} replace />;
   }
 
   // Logged-out view (login only)

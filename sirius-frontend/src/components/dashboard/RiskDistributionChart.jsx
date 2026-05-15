@@ -1,4 +1,5 @@
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import InfoTooltip from "./InfoTooltip.jsx";
 import "./DashboardComponents.css";
 
 const COLORS = {
@@ -9,15 +10,27 @@ const COLORS = {
 /**
  * @param {object} props
  * @param {{ name: string, value: number, pct: number }[]} props.data
+ * @param {string} [props.title]
+ * @param {string} [props.infoText] Optional help tooltip next to title
  * @param {string} [props.className]
  */
-export default function RiskDistributionChart({ data, className = "" }) {
+export default function RiskDistributionChart({
+  data,
+  title = "Risk distribution",
+  infoText = null,
+  className = "",
+}) {
   const hasData = data.some((d) => d.value > 0);
 
   return (
     <div className={`dash-chart-card ${className}`.trim()}>
       <div className="dash-chart-header">
-        <h2 className="dash-chart-title">Risk distribution</h2>
+        <div className="dash-chart-title-row">
+          <h2 className="dash-chart-title">{title}</h2>
+          {infoText ? (
+            <InfoTooltip text={infoText} label={title} wide />
+          ) : null}
+        </div>
       </div>
       <div className="dash-chart-body dash-chart-body--pie">
         {!hasData ? (

@@ -52,7 +52,8 @@ export function AuthProvider({ children }) {
         }
         setRole(data?.role ?? null);
       } catch (err) {
-        console.error("[auth] Role fetch unexpected error:", err);
+        const msg = err instanceof Error ? err.message : "Unexpected error";
+        console.error("[auth] Role fetch unexpected error:", msg);
         if (isMounted) setRole(null);
       }
     };

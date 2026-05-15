@@ -1,27 +1,16 @@
 /**
- * CDM validate-and-import Edge Function — auth probe + logging.
+ * CDM validate-and-import Edge Function.
  *
- * If HTTP 401 is returned *before* these logs appear in the function logs, the
- * Supabase Edge gateway is likely rejecting the JWT. Configure in `supabase/config.toml`:
+ * If HTTP 401 is returned before the handler runs, the Supabase Edge gateway may be
+ * rejecting the JWT. Configure in `supabase/config.toml`:
  *
  *   [functions.validate-and-import-cdm]
  *   verify_jwt = false
- *
- * Then this handler’s manual `getUser()` auth can run.
- *
- * Merge your existing queue / `cdm_uploads` / worker-trigger logic from production
- * after the successful `getUser()` check (do not remove the manual auth pattern).
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-console.log("validate-and-import-cdm: module loaded");
-
 Deno.serve(async (req: Request) => {
-  console.log("validate-and-import-cdm invoked");
-
   const authHeader = req.headers.get("Authorization") ?? "";
-  console.log("Authorization header present:", Boolean(authHeader));
-  console.log("Authorization starts with 'Bearer ':", authHeader.startsWith("Bearer "));
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -31,13 +20,11 @@ Deno.serve(async (req: Request) => {
   });
 
   const { data: userData, error: userErr } = await userClient.auth.getUser();
-  console.log("userClient.auth.getUser() result:", {
-    userId: userData?.user?.id ?? null,
-    email: userData?.user?.email ?? null,
-    error: userErr?.message ?? null,
-  });
 
   if (userErr || !userData?.user) {
+    if (userErr) {
+      console.error("validate-and-import-cdm: unauthorized:", userErr.message);
+    }
     return new Response(
       JSON.stringify({
         error: "Unauthorized",
@@ -47,7 +34,6 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  // --- Keep your production queue / DB logic below; this stub only proves auth + logging. ---
   let payload: Record<string, unknown> = {};
   try {
     if (req.method === "POST") {

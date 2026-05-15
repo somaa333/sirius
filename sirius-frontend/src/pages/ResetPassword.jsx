@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabaseClient";
 import { useAuth } from "../AuthContext.jsx";
 import { useToast } from "../components/toast/ToastProvider.jsx";
+import { getPasswordUpdateErrorMessage } from "../utils/passwordErrors.js";
 
 export default function ResetPassword() {
   const { session, loading: authLoading } = useAuth();
@@ -10,12 +11,6 @@ export default function ResetPassword() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (import.meta.env.DEV && !authLoading) {
-      console.info("[auth] ResetPassword: auth ready, hasSession=", !!session);
-    }
-  }, [authLoading, session]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -35,7 +30,10 @@ export default function ResetPassword() {
     });
 
     if (error) {
-      pushToast(`Error updating password: ${error.message}`, "error");
+      pushToast(
+        getPasswordUpdateErrorMessage(error, "Could not update password"),
+        "error",
+      );
       return;
     }
 

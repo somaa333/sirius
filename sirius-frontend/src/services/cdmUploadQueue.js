@@ -21,19 +21,27 @@ const PROCESS_EDGE_FN = "process-cdm-upload";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-export function validateCsvFile(file) {
+/**
+ * Client-side checks before any upload or processing starts.
+ * @param {File | null | undefined} file
+ * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
+ */
+export async function validateCsvFile(file) {
   if (!file) {
     return { ok: false, error: "No file selected." };
   }
+
   if (file.size === 0) {
-    return { ok: false, error: "File is empty." };
+    return { ok: false, error: "The file is empty. Choose a CSV with data." };
   }
+
   if (file.size > MAX_CDM_FILE_SIZE_BYTES) {
     return {
       ok: false,
       error: `File is too large. Maximum allowed size is ${MAX_CDM_FILE_SIZE_LABEL}.`,
     };
   }
+
   const lower = file.name.toLowerCase();
   const looksCsv =
     lower.endsWith(".csv") ||
@@ -43,6 +51,18 @@ export function validateCsvFile(file) {
 
   if (!looksCsv) {
     return { ok: false, error: "Please upload a CSV file (.csv)." };
+  }
+
+  // Catch whitespace-only files (e.g. blank lines) before upload.
+  if (file.size <= 1024 * 1024) {
+    try {
+      const text = await file.text();
+      if (!text.trim()) {
+        return { ok: false, error: "The file is empty. Choose a CSV with data." };
+      }
+    } catch {
+      return { ok: false, error: "Could not read the file. Try again." };
+    }
   }
 
   return { ok: true };
@@ -228,13 +248,11 @@ export function parseQueueResponse(data) {
 export async function uploadAndQueueCdm(file, options = {}) {
   const { onPhase, onUploadProgress } = options;
 
-  console.log("[cdmUpload] start: validate file");
-  const v = validateCsvFile(file);
+  const v = await validateCsvFile(file);
   if (!v.ok) {
     throw new Error(v.error);
   }
 
-  console.log("[cdmUpload] step: get authenticated user");
   const {
     data: { user },
     error: userError,
@@ -243,11 +261,9 @@ export async function uploadAndQueueCdm(file, options = {}) {
     throw new Error("You must be signed in to upload.");
   }
 
-  console.log("[cdmUpload] step: generate uploadId and storage path");
   const uploadId = crypto.randomUUID();
   const storagePath = `${user.id}/${uploadId}/${file.name}`;
 
-  console.log("[cdmUpload] step: insert cdm_uploads (pending) before storage upload");
   onPhase?.("creating_record");
   const { error: insertError } = await supabase.from("cdm_uploads").insert({
     id: uploadId,
@@ -266,10 +282,7 @@ export async function uploadAndQueueCdm(file, options = {}) {
       insertError.message || "Failed to create upload record.",
     );
   }
-  console.log("[cdmUpload] insert ok, uploadId=", uploadId);
-
   try {
-    console.log("[cdmUpload] step: get fresh session for storage upload");
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -278,7 +291,6 @@ export async function uploadAndQueueCdm(file, options = {}) {
       throw new Error("Session expired. Sign in again.");
     }
 
-    console.log("[cdmUpload] step: upload file to storage (with progress)");
     onPhase?.("uploading");
     onUploadProgress?.(0);
 
@@ -295,7 +307,6 @@ export async function uploadAndQueueCdm(file, options = {}) {
       },
     });
     onUploadProgress?.(100);
-    console.log("[cdmUpload] storage upload finished");
   } catch (uploadErr) {
     const msg =
       uploadErr instanceof Error
@@ -306,7 +317,6 @@ export async function uploadAndQueueCdm(file, options = {}) {
     throw new Error(msg);
   }
 
-  console.log("[cdmUpload] step: update cdm_uploads to uploaded + upload_completed_at");
   const { error: updateError } = await supabase
     .from("cdm_uploads")
     .update({
@@ -325,9 +335,6 @@ export async function uploadAndQueueCdm(file, options = {}) {
       updateError.message || "Failed to update upload after storage.",
     );
   }
-  console.log("[cdmUpload] row marked uploaded");
-
-  console.log("[cdmUpload] step: resolve session + JWT for Edge Function invoke");
   onPhase?.("queueing");
 
   let sessionForEdge;
@@ -339,29 +346,6 @@ export async function uploadAndQueueCdm(file, options = {}) {
     throw new Error(msg);
   }
 
-  const nowMs = Date.now();
-  const expMs =
-    typeof sessionForEdge.expires_at === "number"
-      ? sessionForEdge.expires_at * 1000
-      : null;
-  console.log("[cdmUpload] pre-invoke Edge Function auth (debug)", {
-    hasSession: !!sessionForEdge,
-    hasAccessToken: !!sessionForEdge.access_token,
-    accessTokenExpiresAtIso:
-      expMs != null ? new Date(expMs).toISOString() : null,
-    nowIso: new Date(nowMs).toISOString(),
-  });
-
-  // Explicit user JWT for the Edge Function. If you still see HTTP 401 before the
-  // function body runs, Supabase may be verifying JWT at the gateway; set in
-  // supabase/config.toml:
-  //   [functions.validate-and-import-cdm]
-  //   verify_jwt = false
-  // so manual auth inside the function can run (see repo `supabase/config.toml`).
-  console.log("[cdmUpload] invoking Edge Function", EDGE_FN, {
-    authorizationScheme: "Bearer",
-    accessTokenChars: sessionForEdge.access_token?.length ?? 0,
-  });
   const { data: fnData, error: fnError } = await supabase.functions.invoke(
     EDGE_FN,
     {
@@ -377,7 +361,10 @@ export async function uploadAndQueueCdm(file, options = {}) {
   );
 
   if (fnError) {
-    console.error("[cdmUpload] edge function fnError:", fnError);
+    console.error(
+      "[cdmUpload] edge function failed:",
+      edgeInvokeErrorMessage(fnError, "Could not queue background processing."),
+    );
     const userMessage = edgeInvokeErrorMessage(
       fnError,
       "Could not queue background processing.",
@@ -406,11 +393,6 @@ export async function uploadAndQueueCdm(file, options = {}) {
     // tolerate server echoing id
   }
 
-  console.log(
-    "[cdmUpload] queue Edge Function succeeded (validate-and-import-cdm), uploadId=",
-    uploadId,
-  );
-
   onPhase?.("starting_process");
 
   let sessionForProcess;
@@ -422,25 +404,6 @@ export async function uploadAndQueueCdm(file, options = {}) {
     throw new Error(msg);
   }
 
-  const nowProcMs = Date.now();
-  const expProcMs =
-    typeof sessionForProcess.expires_at === "number"
-      ? sessionForProcess.expires_at * 1000
-      : null;
-  console.log("[cdmUpload] pre-invoke process Edge Function auth (debug)", {
-    hasSession: !!sessionForProcess,
-    hasAccessToken: !!sessionForProcess.access_token,
-    accessTokenExpiresAtIso:
-      expProcMs != null ? new Date(expProcMs).toISOString() : null,
-    nowIso: new Date(nowProcMs).toISOString(),
-  });
-
-  console.log("[cdmUpload] invoking Edge Function", PROCESS_EDGE_FN, {
-    uploadId,
-    authorizationScheme: "Bearer",
-    accessTokenChars: sessionForProcess.access_token?.length ?? 0,
-  });
-
   const { data: processData, error: processError } =
     await supabase.functions.invoke(PROCESS_EDGE_FN, {
       body: { uploadId },
@@ -450,7 +413,13 @@ export async function uploadAndQueueCdm(file, options = {}) {
     });
 
   if (processError) {
-    console.error("[cdmUpload] process Edge Function fnError:", processError);
+    console.error(
+      "[cdmUpload] process edge function failed:",
+      edgeInvokeErrorMessage(
+        processError,
+        "Could not start CDM import processing.",
+      ),
+    );
     const userMessage = edgeInvokeErrorMessage(
       processError,
       "Could not start CDM import processing.",
@@ -473,11 +442,6 @@ export async function uploadAndQueueCdm(file, options = {}) {
     await markUploadRowFailed(uploadId, msg);
     throw new Error(msg);
   }
-
-  console.log(
-    "[cdmUpload] process Edge Function succeeded (process-cdm-upload), uploadId=",
-    uploadId,
-  );
 
   return {
     uploadId,

@@ -22,6 +22,26 @@ export async function fetchRecentCdmUploadsForUser(userId, limit = 25) {
   return data ?? [];
 }
 
+const UPLOAD_DETAIL_SELECT =
+  "id, upload_code, file_name, status, error_summary, created_at, started_at, finished_at";
+
+/**
+ * Single upload row for detail modals (outcome summary, status).
+ * @param {string} uploadId
+ */
+export async function fetchCdmUploadById(uploadId) {
+  const { data, error } = await supabase
+    .from("cdm_uploads")
+    .select(UPLOAD_DETAIL_SELECT)
+    .eq("id", uploadId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message || "Failed to load upload details.");
+  }
+  return data;
+}
+
 /**
  * Row-level validation errors for an upload.
  * @param {string} uploadId

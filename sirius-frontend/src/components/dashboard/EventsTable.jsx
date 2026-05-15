@@ -3,11 +3,13 @@ import { useNavigate } from "react-router-dom";
 import {
   deleteCdmEvent,
   deleteCdmEvents,
-  exportEventSummariesToCsv,
+  exportSelectedEventsCdmsToCsv,
   formatProbability,
   formatUtc,
 } from "../../data/cdmEventData.js";
 import { useToast } from "../toast/ToastProvider.jsx";
+import { TOOLTIP_CDM_EVENTS_TABLE } from "../../constants/helpTooltips.js";
+import InfoTooltip from "./InfoTooltip.jsx";
 import "./DashboardComponents.css";
 
 /**
@@ -49,6 +51,7 @@ function formatDeletedRowsMessage(rpcData) {
  * @param {boolean} [props.loading]
  * @param {string|null} [props.error]
  * @param {string} [props.emptyMessage]
+ * @param {string} props.userId — for exporting CDM rows per selected event
  */
 export default function EventsTable({
   events,
@@ -61,6 +64,7 @@ export default function EventsTable({
   loading = false,
   error = null,
   emptyMessage = "No CDM events match the current filters or search.",
+  userId,
 }) {
   const navigate = useNavigate();
   const { pushToast } = useToast();
@@ -84,6 +88,7 @@ export default function EventsTable({
     ),
   );
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const [deleteModalError, setDeleteModalError] = useState(
     /** @type {string | null} */ (null),
   );
@@ -222,23 +227,25 @@ export default function EventsTable({
   const colSpan = 7;
   const selectedCount = selectedIds.size;
   const showSelectionToolbar = selectedCount > 0;
-  const selectionActionsDisabled = loading || !!error;
+  const selectionActionsDisabled = loading || !!error || exportBusy;
 
-  const selectedEventRows = useMemo(() => {
-    if (selectedCount === 0) return [];
-    return events.filter((e) => selectedIds.has(e.id));
-  }, [events, selectedIds, selectedCount]);
-
-  const handleExportSelected = () => {
-    if (selectedEventRows.length === 0) return;
+  const handleExportSelected = async () => {
+    if (selectedCount === 0 || !userId) return;
+    setExportBusy(true);
     try {
-      exportEventSummariesToCsv(selectedEventRows, "selected-cdm-events.csv");
+      const { rowCount, eventCount } = await exportSelectedEventsCdmsToCsv(
+        [...selectedIds],
+        userId,
+        "selected-cdm-rows.csv",
+      );
       pushToast(
-        `Exported ${selectedEventRows.length} selected event row(s) to selected-cdm-events.csv.`,
+        `Exported ${rowCount} CDM row(s) from ${eventCount} event(s) to selected-cdm-rows.csv.`,
         "success",
       );
-    } catch {
-      pushToast("Export failed. Try again.", "error");
+    } catch (e) {
+      pushToast(errorMessage(e), "error");
+    } finally {
+      setExportBusy(false);
     }
   };
 
@@ -246,10 +253,13 @@ export default function EventsTable({
     <section className="dash-table-section dash-table-section--cdm-events">
       <div className="dash-table-head">
         <div>
-          <h2 className="dash-table-title">
-            CDM Events
-            <span className="dash-table-count"> ({events.length})</span>
-          </h2>
+          <div className="dash-table-title-row">
+            <h2 className="dash-table-title">
+              CDM Events
+              <span className="dash-table-count"> ({events.length})</span>
+            </h2>
+            <InfoTooltip text={TOOLTIP_CDM_EVENTS_TABLE} label="CDM Events table" wide />
+          </div>
         </div>
         <div className="dash-table-toolbar-stack">
           <div className="dash-table-controls dash-table-controls--events">
@@ -325,10 +335,10 @@ export default function EventsTable({
             <button
               type="button"
               className="dash-cdm-floating-btn"
-              disabled={selectionActionsDisabled}
-              onClick={handleExportSelected}
+              disabled={selectionActionsDisabled || !userId}
+              onClick={() => void handleExportSelected()}
             >
-              Export Selected
+              {exportBusy ? "Exporting…" : "Export Selected"}
             </button>
             <button
               type="button"
@@ -355,11 +365,11 @@ export default function EventsTable({
                 />
               </th>
               <th scope="col">Event ID</th>
-              <th scope="col">Date &amp; time (UTC)</th>
+              <th scope="col">Date &amp; time</th>
               <th scope="col" className="dash-table-cell--center">
                 CDMs in event
               </th>
-              <th scope="col">Latest TCA (UTC)</th>
+              <th scope="col">Latest TCA</th>
               <th scope="col" className="dash-table-cell--center">
                 Latest Collision Probability
               </th>

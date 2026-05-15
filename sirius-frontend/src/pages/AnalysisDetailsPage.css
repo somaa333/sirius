@@ -24,8 +24,7 @@
 
 .analysis2-header-card,
 .analysis2-hero,
-.analysis2-panel,
-.analysis2-stat-card {
+.analysis2-panel {
   border-radius: 14px;
   padding: 16px;
   border: 1px solid rgba(148, 163, 184, 0.2);
@@ -156,28 +155,6 @@
   background: linear-gradient(90deg, #60a5fa, #22c55e);
 }
 
-.analysis2-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.analysis2-stat-card p {
-  margin: 0;
-  color: #94a3b8;
-  text-transform: uppercase;
-  font-size: 0.7rem;
-  letter-spacing: 0.05em;
-}
-
-.analysis2-stat-card h3 {
-  margin: 8px 0 0;
-  color: #f8fafc;
-  font-size: 0.95rem;
-  word-break: break-word;
-}
-
 .analysis2-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -259,6 +236,19 @@
 .analysis2-row-value > span {
   display: inline-block;
   max-width: 100%;
+}
+
+.analysis2-row-value--longid {
+  padding-right: 52px;
+}
+
+.analysis2-row-value--longid > span {
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-align: right;
 }
 
 .analysis2-inline-copy {
@@ -463,10 +453,6 @@
 }
 
 @media (max-width: 1100px) {
-  .analysis2-metrics-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .analysis2-grid-2 {
     grid-template-columns: 1fr;
   }
@@ -488,11 +474,6 @@
   .analysis2-header-meta {
     text-align: left;
   }
-}
-
-.analysis2-grid-2 .analysis2-shap-card {
-  grid-column: 1 / -1;
-  margin-top: 4px;
 }
 
 .analysis2-shap-title-row {

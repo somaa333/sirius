@@ -843,7 +843,6 @@ if (import.meta.main) {
       return new Response("ok", { headers: CORS_HEADERS });
     }
 
-    console.log("process-cdm-upload init invoked");
     let uploadId: string | undefined;
 
     try {
@@ -919,8 +918,6 @@ if (import.meta.main) {
         chunkSize: 100,
       });
 
-      console.log("process-cdm-upload init completed; scheduling background streaming task", { uploadId });
-
       EdgeRuntime.waitUntil(runStreamingImport(uploadId, user.id));
 
       return jsonResponse({
@@ -930,7 +927,8 @@ if (import.meta.main) {
         message: "Streaming import started in background.",
       });
     } catch (error) {
-      console.error("process-cdm-upload init error:", error);
+      const msg = error instanceof Error ? error.message : "Unknown processing init error";
+      console.error("process-cdm-upload init failed:", msg);
       if (uploadId) {
         try {
           const serviceClient = createClient(
@@ -947,7 +945,9 @@ if (import.meta.main) {
             error: error instanceof Error ? error.message : "Unknown processing init error",
           });
         } catch (innerError) {
-          console.error("Failed to update upload status after init error:", innerError);
+          const innerMsg =
+            innerError instanceof Error ? innerError.message : "Unknown error";
+          console.error("Failed to update upload status after init error:", innerMsg);
         }
       }
       return jsonResponse(
@@ -959,7 +959,6 @@ if (import.meta.main) {
 }
 
 async function runStreamingImport(uploadId: string, userId: string) {
-  console.log("runStreamingImport started", { uploadId, userId });
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!supabaseUrl || !serviceRoleKey) {
@@ -989,11 +988,6 @@ async function runStreamingImport(uploadId: string, userId: string) {
     if (downloadError || !storageFile) {
       throw new Error(`Failed to open stream from storage: ${downloadError?.message ?? "Unknown error"}`);
     }
-    console.log("runStreamingImport stream opened", {
-      uploadId,
-      bytes: storageFile.size,
-    });
-
     const duplicateKeysInFile = new Set<string>();
     let processedRows = 0;
     let validRows = 0;
@@ -1038,15 +1032,6 @@ async function runStreamingImport(uploadId: string, userId: string) {
         failed_rows: invalidRows,
         progress_percent: progressPercent,
       });
-      console.log("runStreamingImport progress update", {
-        uploadId,
-        reason,
-        processedRows,
-        totalRows,
-        validRows,
-        invalidRows,
-        progressPercent,
-      });
     };
 
     const flushBatches = async (reason: string) => {
@@ -1062,13 +1047,6 @@ async function runStreamingImport(uploadId: string, userId: string) {
         reason,
         processedRows,
         totalRows,
-        validRows,
-        invalidRows,
-      });
-      console.log("runStreamingImport flush", {
-        uploadId,
-        reason,
-        processedRows,
         validRows,
         invalidRows,
       });
@@ -1212,16 +1190,9 @@ async function runStreamingImport(uploadId: string, userId: string) {
       validRows,
       invalidRows,
     });
-    console.log("runStreamingImport final completion", {
-      uploadId,
-      finalStatus,
-      totalRows,
-      processedRows,
-      validRows,
-      invalidRows,
-    });
   } catch (error) {
-    console.error("runStreamingImport final failure", { uploadId, error });
+    const msg = error instanceof Error ? error.message : "Unknown streaming import error";
+    console.error("runStreamingImport failed:", msg);
     try {
       await updateUpload(serviceClient, uploadId, {
         status: "failed",
@@ -1233,7 +1204,9 @@ async function runStreamingImport(uploadId: string, userId: string) {
         error: error instanceof Error ? error.message : "Unknown streaming import error",
       });
     } catch (innerError) {
-      console.error("runStreamingImport failed to persist failure state", innerError);
+      const innerMsg =
+        innerError instanceof Error ? innerError.message : "Unknown error";
+      console.error("runStreamingImport failed to persist failure state:", innerMsg);
     }
   }
 }

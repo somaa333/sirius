@@ -36,7 +36,7 @@ async function invokeAdminFunction(body) {
       data,
       "Failed to reach admin service.",
     );
-    console.error("[AdminPanel] admin-operators invoke error:", fnError, data);
+    console.error("[AdminPanel] admin-operators invoke failed:", message);
     return { data, error: { message } };
   }
 
@@ -195,7 +195,7 @@ export default function AdminPanel() {
   return (
     <>
       <DashboardPageLayout title="Admin Panel">
-        <section className="admin-panel-content">
+        <section className="admin-panel-content" id="operators-management">
           <AdminOperatorsTable
             operators={operators}
             loading={loading}

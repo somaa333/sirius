@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, Link, useLocation } from "react-router-dom";
 import { supabase } from "../supabaseClient";
 import { useAuth } from "../AuthContext.jsx";
+import { NAV_SECTION_LINKS } from "../constants/navSectionConfig.js";
+import HeaderNavBranch from "./HeaderNavBranch.jsx";
 import { getSignedAvatarUrl } from "../pages/profileAvatar";
 import "./Header.css";
 
@@ -96,6 +98,25 @@ export default function Header() {
 
   const isActive = (path) => location.pathname === path;
 
+  const sectionsByPath = useMemo(() => {
+    const filtered = NAV_SECTION_LINKS.filter(
+      (item) => item.path !== "/admin" || role === "admin",
+    );
+    return Object.fromEntries(filtered.map((item) => [item.path, item.sections]));
+  }, [role]);
+
+  useEffect(() => {
+    const onDocKey = (event) => {
+      if (event.key !== "Escape") return;
+      const nav = document.querySelector(".header-nav");
+      if (!nav?.contains(document.activeElement)) return;
+      const ae = document.activeElement;
+      if (ae instanceof HTMLElement) ae.blur();
+    };
+    document.addEventListener("keydown", onDocKey);
+    return () => document.removeEventListener("keydown", onDocKey);
+  }, []);
+
   return (
     <header className="header">
       {authError ? (
@@ -143,48 +164,48 @@ export default function Header() {
           </Link>
 
           <nav className="header-nav">
-            <Link
+            <HeaderNavBranch
               to="/"
-              className={`header-nav-link ${location.pathname === "/" ? "header-nav-link-active" : ""}`}
-            >
-              Home
-            </Link>
+              label="Home"
+              active={isActive("/")}
+              sections={sectionsByPath["/"] ?? []}
+            />
             {session && (
               <>
-                {(role === "admin" || role === "operator") ? (
-                  <Link
+                {role === "admin" || role === "operator" ? (
+                  <HeaderNavBranch
                     to="/cdm-upload"
-                    className={`header-nav-link ${isActive("/cdm-upload") ? "header-nav-link-active" : ""}`}
-                  >
-                    Upload CDM
-                  </Link>
+                    label="Upload CDM"
+                    active={isActive("/cdm-upload")}
+                    sections={sectionsByPath["/cdm-upload"] ?? []}
+                  />
                 ) : null}
-                <Link
+                <HeaderNavBranch
                   to="/dashboard"
-                  className={`header-nav-link ${location.pathname.startsWith("/dashboard") ? "header-nav-link-active" : ""}`}
-                >
-                  Dashboard
-                </Link>
-                <Link
+                  label="Dashboard"
+                  active={location.pathname.startsWith("/dashboard")}
+                  sections={sectionsByPath["/dashboard"] ?? []}
+                />
+                <HeaderNavBranch
                   to="/analysis"
-                  className={`header-nav-link ${location.pathname.startsWith("/analysis") ? "header-nav-link-active" : ""}`}
-                >
-                  Analysis
-                </Link>
-                <Link
+                  label="Analysis"
+                  active={location.pathname.startsWith("/analysis")}
+                  sections={sectionsByPath["/analysis"] ?? []}
+                />
+                <HeaderNavBranch
                   to="/reports"
-                  className={`header-nav-link ${location.pathname.startsWith("/reports") ? "header-nav-link-active" : ""}`}
-                >
-                  Reports
-                </Link>
-                {role === "admin" && (
-                  <Link
+                  label="Reports"
+                  active={location.pathname.startsWith("/reports")}
+                  sections={sectionsByPath["/reports"] ?? []}
+                />
+                {role === "admin" ? (
+                  <HeaderNavBranch
                     to="/admin"
-                    className={`header-nav-link ${isActive("/admin") ? "header-nav-link-active" : ""}`}
-                  >
-                    Admin Panel
-                  </Link>
-                )}
+                    label="Admin Panel"
+                    active={isActive("/admin")}
+                    sections={sectionsByPath["/admin"] ?? []}
+                  />
+                ) : null}
               </>
             )}
           </nav>

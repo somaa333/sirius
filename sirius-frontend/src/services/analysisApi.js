@@ -2,19 +2,14 @@
  * FastAPI analysis service. Base URL from Vite env — never hardcode.
  * @see import.meta.env.VITE_AI_API_BASE_URL
  */
+import {
+  analysisHttpErrorMessage,
+  analysisNetworkErrorMessage,
+  checkAnalysisServiceReachable,
+  getAnalysisServiceUrl,
+} from "../utils/analysisErrors.js";
 
-/**
- * @returns {string}
- */
-function getAiApiBaseUrl() {
-  const raw = import.meta.env.VITE_AI_API_BASE_URL;
-  if (raw == null || String(raw).trim() === "") {
-    throw new Error(
-      "VITE_AI_API_BASE_URL is not set. Add it to your .env (e.g. VITE_AI_API_BASE_URL=http://127.0.0.1:8000).",
-    );
-  }
-  return String(raw).replace(/\/$/, "");
-}
+export { checkAnalysisServiceReachable };
 
 /**
  * @param {string} eventId
@@ -25,22 +20,22 @@ export async function runActualAnalysis(eventId, userId) {
   if (!userId) {
     throw new Error("Missing user id for analysis request.");
   }
-  const base = getAiApiBaseUrl();
+  const base = getAnalysisServiceUrl();
   const url = `${base}/analyze/actual/${encodeURIComponent(eventId)}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "x-user-id": userId,
-    },
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "x-user-id": userId,
+      },
+    });
+  } catch (err) {
+    throw new Error(analysisNetworkErrorMessage(err, "actual"));
+  }
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(
-      text?.trim()
-        ? `Actual analysis failed (${res.status}): ${text}`
-        : `Actual analysis failed (${res.status} ${res.statusText})`,
-    );
+    throw new Error(await analysisHttpErrorMessage(res, "actual"));
   }
   return res.json();
 }
@@ -54,22 +49,22 @@ export async function runPredictedAnalysis(eventId, userId) {
   if (!userId) {
     throw new Error("Missing user id for analysis request.");
   }
-  const base = getAiApiBaseUrl();
+  const base = getAnalysisServiceUrl();
   const url = `${base}/analyze/predicted/${encodeURIComponent(eventId)}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "x-user-id": userId,
-    },
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "x-user-id": userId,
+      },
+    });
+  } catch (err) {
+    throw new Error(analysisNetworkErrorMessage(err, "predicted"));
+  }
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(
-      text?.trim()
-        ? `Predicted analysis failed (${res.status}): ${text}`
-        : `Predicted analysis failed (${res.status} ${res.statusText})`,
-    );
+    throw new Error(await analysisHttpErrorMessage(res, "predicted"));
   }
   return res.json();
 }
@@ -88,22 +83,22 @@ export async function generateAssessmentShap(assessmentUuid, userId) {
   if (!id) {
     throw new Error("Missing assessment id for SHAP request.");
   }
-  const base = getAiApiBaseUrl();
+  const base = getAnalysisServiceUrl();
   const url = `${base}/assessments/${encodeURIComponent(id)}/generate-shap`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "x-user-id": userId,
-    },
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "x-user-id": userId,
+      },
+    });
+  } catch (err) {
+    throw new Error(analysisNetworkErrorMessage(err));
+  }
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(
-      text?.trim()
-        ? `SHAP generation failed (${res.status}): ${text}`
-        : `SHAP generation failed (${res.status} ${res.statusText})`,
-    );
+    throw new Error(await analysisHttpErrorMessage(res));
   }
   return res.json();
 }

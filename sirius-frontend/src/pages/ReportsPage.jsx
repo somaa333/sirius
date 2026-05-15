@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -11,7 +11,10 @@ import {
   buildCdmEventSummaryReport,
   createReportHistoryRow,
   deleteReportHistoryRow,
+  deleteReportHistoryRows,
   fetchReportHistory,
+  getReportDisplayId,
+  getReportHistoryRowKey,
   updateReportHistoryFileType,
 } from "../data/reportsData.js";
 import { formatUtc } from "../data/cdmEventData.js";
@@ -250,6 +253,18 @@ const PDF_TEXT = [241, 245, 249];
 const PDF_MUTED = [148, 163, 184];
 
 /**
+ * Full-bleed background for structured PDFs. autoTable adds pages via `addPage`;
+ * those pages default to white unless we paint them.
+ * @param {jsPDF} doc
+ */
+function pdfFillStructuredPageBackground(doc) {
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  doc.setFillColor(...PDF_BG);
+  doc.rect(0, 0, pageW, pageH, "F");
+}
+
+/**
  * @param {jsPDF} doc
  * @param {number} y
  * @param {string} title
@@ -272,34 +287,25 @@ function pdfSectionBar(doc, y, title) {
  */
 function renderStructuredPdf(doc, data) {
   const pageW = doc.internal.pageSize.getWidth();
-  doc.setFillColor(...PDF_BG);
-  doc.rect(0, 0, pageW, doc.internal.pageSize.getHeight(), "F");
+  pdfFillStructuredPageBackground(doc);
 
+  const origAddPage = doc.addPage.bind(doc);
+  doc.addPage = function addPageWithBackground(...args) {
+    const out = origAddPage(...args);
+    pdfFillStructuredPageBackground(this);
+    return out;
+  };
+
+  try {
   doc.setFillColor(12, 18, 34);
-  doc.rect(0, 0, pageW, 72, "F");
+  doc.rect(0, 0, pageW, 48, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(22);
   doc.setFont("helvetica", "bold");
-  doc.text("SIRIUS", 40, 42);
-  doc.setFontSize(14);
+  doc.text("SIRIUS", 40, 32);
   doc.setFont("helvetica", "normal");
-  const reportTitle =
-    data.reportType === "risk_summary"
-      ? "Risk Summary Report"
-      : data.reportType === "cdm_event_summary"
-        ? "CDM Event Summary Report"
-        : data.reportName ?? "Report";
-  doc.text(reportTitle, 130, 42);
-  doc.setFontSize(9);
-  doc.setTextColor(...PDF_MUTED);
-  doc.text(
-    `Date range: ${toDisplayDate(data.startDate)} → ${toDisplayDate(data.endDate)}`,
-    40,
-    60,
-  );
-  doc.text(`Generated: ${formatUtc(data.generatedAt)}`, pageW - 40, 60, { align: "right" });
 
-  let y = 92;
+  let y = 64;
   const summary = data.summary ?? {};
 
   if (data.reportType === "risk_summary") {
@@ -391,6 +397,9 @@ function renderStructuredPdf(doc, data) {
     margin: { left: 28, right: 28 },
     tableWidth: "auto",
   });
+  } finally {
+    doc.addPage = origAddPage;
+  }
 }
 
 function PreviewTableCell({ reportType, col, value }) {
@@ -542,6 +551,10 @@ export default function ReportsPage() {
   const [selectedHistoryIds, setSelectedHistoryIds] = useState(new Set());
   const [openMenuReportId, setOpenMenuReportId] = useState(null);
   const [detailModalRow, setDetailModalRow] = useState(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPageSize, setHistoryPageSize] = useState(
+    /** @type {10 | 50 | 100} */ (10),
+  );
   const selectAllHistoryRef = useRef(null);
   const menuRef = useRef(null);
 
@@ -568,6 +581,17 @@ export default function ReportsPage() {
     if (!user?.id) return;
     void loadHistory();
   }, [user?.id, loadHistory]);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [historyRows.length, historyPageSize]);
+
+  const totalHistoryPages = Math.max(1, Math.ceil(historyRows.length / historyPageSize));
+  const safeHistoryPage = Math.min(historyPage, totalHistoryPages);
+  const pagedHistoryRows = useMemo(() => {
+    const start = (safeHistoryPage - 1) * historyPageSize;
+    return historyRows.slice(start, start + historyPageSize);
+  }, [historyRows, safeHistoryPage, historyPageSize]);
 
   const validate = () => {
     const nextErrors = {};
@@ -697,12 +721,13 @@ export default function ReportsPage() {
     if (!ok || !user?.id) return;
     try {
       await deleteReportHistoryRow(row, user.id);
-      const target = String(row.id ?? row.report_id ?? "");
-      setHistoryRows((prev) => prev.filter((r) => String(r.id ?? r.report_id ?? "") !== target));
-      if (savedReportRow && String(savedReportRow.id ?? savedReportRow.report_id ?? "") === target) {
+      const target = getReportHistoryRowKey(row);
+      setHistoryRows((prev) => prev.filter((r) => getReportHistoryRowKey(r) !== target));
+      if (savedReportRow && getReportHistoryRowKey(savedReportRow) === target) {
         setSavedReportRow(null);
       }
       pushToast("Report history row deleted.", "success");
+      await loadHistory();
     } catch (error) {
       pushToast(error instanceof Error ? error.message : String(error), "error");
     }
@@ -710,9 +735,9 @@ export default function ReportsPage() {
 
   const allHistorySelected =
     historyRows.length > 0 &&
-    historyRows.every((row) => selectedHistoryIds.has(String(row.id ?? row.report_id ?? "")));
+    historyRows.every((row) => selectedHistoryIds.has(getReportHistoryRowKey(row)));
   const someHistorySelected =
-    historyRows.some((row) => selectedHistoryIds.has(String(row.id ?? row.report_id ?? ""))) &&
+    historyRows.some((row) => selectedHistoryIds.has(getReportHistoryRowKey(row))) &&
     !allHistorySelected;
 
   useEffect(() => {
@@ -742,7 +767,7 @@ export default function ReportsPage() {
   const toggleSelectAllHistory = () => {
     setSelectedHistoryIds((prev) => {
       if (!historyRows.length) return new Set();
-      const allIds = historyRows.map((row) => String(row.id ?? row.report_id ?? ""));
+      const allIds = historyRows.map((row) => getReportHistoryRowKey(row));
       if (allIds.every((id) => prev.has(id))) return new Set();
       return new Set(allIds);
     });
@@ -763,11 +788,12 @@ export default function ReportsPage() {
     const ok = window.confirm("Delete selected report history rows?");
     if (!ok) return;
     try {
-      const selectedRows = historyRows.filter((r) => ids.includes(String(r.id ?? r.report_id ?? "")));
-      await Promise.all(selectedRows.map((row) => deleteReportHistoryRow(row, user.id)));
-      setHistoryRows((prev) => prev.filter((r) => !ids.includes(String(r.id ?? r.report_id ?? ""))));
+      const selectedRows = historyRows.filter((r) => ids.includes(getReportHistoryRowKey(r)));
+      await deleteReportHistoryRows(selectedRows, user.id);
+      setHistoryRows((prev) => prev.filter((r) => !ids.includes(getReportHistoryRowKey(r))));
       setSelectedHistoryIds(new Set());
       pushToast("Selected report history rows deleted.", "success");
+      await loadHistory();
     } catch (error) {
       pushToast(error instanceof Error ? error.message : String(error), "error");
     }
@@ -777,10 +803,10 @@ export default function ReportsPage() {
     const ids = [...selectedHistoryIds];
     if (!ids.length) return;
     for (const row of historyRows) {
-      const id = String(row.id ?? row.report_id ?? "");
+      const id = getReportHistoryRowKey(row);
       if (!ids.includes(id)) continue;
       const restored = normalizeReportRecord(row);
-      await handleDownloadPdf(restored, String(row.report_id ?? row.id ?? "report"), row);
+      await handleDownloadPdf(restored, getReportDisplayId(row), row);
     }
   };
 
@@ -788,10 +814,10 @@ export default function ReportsPage() {
     const ids = [...selectedHistoryIds];
     if (!ids.length) return;
     for (const row of historyRows) {
-      const id = String(row.id ?? row.report_id ?? "");
+      const id = getReportHistoryRowKey(row);
       if (!ids.includes(id)) continue;
       const restored = normalizeReportRecord(row);
-      await handleDownloadCsv(restored, String(row.report_id ?? row.id ?? "report"), row);
+      await handleDownloadCsv(restored, getReportDisplayId(row), row);
     }
   };
 
@@ -802,7 +828,7 @@ export default function ReportsPage() {
   };
 
   const previewRowCount = preview?.tableRows?.length ?? 0;
-  const previewSlug = String(savedReportRow?.report_id ?? savedReportRow?.id ?? "report");
+  const previewSlug = savedReportRow ? getReportDisplayId(savedReportRow) : "report";
 
   if (authLoading || !user) return null;
 
@@ -810,7 +836,7 @@ export default function ReportsPage() {
     <DashboardPageLayout
       title="Reports"
     >
-      <section id="reports-generate-section" className="reports-card">
+      <section id="generate-report" className="reports-card">
         <h2 className="reports-section-title">Generate Report</h2>
         <div className="reports-form-grid">
           <label className="dash-field">
@@ -953,7 +979,10 @@ export default function ReportsPage() {
         </>
       ) : null}
 
-      <section className="reports-card dash-table-section dash-table-section--cdm-events reports-history-section">
+      <section
+        id="report-history"
+        className="reports-card dash-table-section dash-table-section--cdm-events reports-history-section"
+      >
         <div className="dash-table-head">
           <h2 className="dash-table-title">
             Report History
@@ -1048,8 +1077,9 @@ export default function ReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {historyRows.map((row) => {
-                  const reportId = row.report_id ?? row.id ?? "—";
+                {pagedHistoryRows.map((row) => {
+                  const rowKey = getReportHistoryRowKey(row);
+                  const reportId = getReportDisplayId(row);
                   const restored = normalizeReportRecord(row);
                   const statusRaw = String(row.status ?? "").trim();
                   const statusLabel =
@@ -1059,13 +1089,13 @@ export default function ReportsPage() {
                         ? "Failed"
                         : statusRaw || "—";
                   return (
-                    <tr key={String(reportId)}>
+                    <tr key={rowKey || String(reportId)}>
                       <td className="dash-table-td--checkbox">
                         <input
                           type="checkbox"
                           className="dash-events-checkbox"
-                          checked={selectedHistoryIds.has(String(reportId))}
-                          onChange={() => toggleSelectHistory(String(reportId))}
+                          checked={selectedHistoryIds.has(rowKey)}
+                          onChange={() => toggleSelectHistory(rowKey)}
                           aria-label={`Select report ${String(reportId)}`}
                         />
                       </td>
@@ -1093,22 +1123,20 @@ export default function ReportsPage() {
                         </span>
                       </td>
                       <td className="dash-table-td--actions dash-table-cell--center">
-                        <div className="dash-row-menu-wrap" ref={openMenuReportId === String(reportId) ? menuRef : null}>
+                        <div className="dash-row-menu-wrap" ref={openMenuReportId === rowKey ? menuRef : null}>
                           <button
                             type="button"
                             className="dash-row-menu-trigger"
                             aria-haspopup="menu"
-                            aria-expanded={openMenuReportId === String(reportId)}
+                            aria-expanded={openMenuReportId === rowKey}
                             aria-label={`Actions for report ${String(reportId)}`}
                             onClick={() =>
-                              setOpenMenuReportId((cur) =>
-                                cur === String(reportId) ? null : String(reportId),
-                              )
+                              setOpenMenuReportId((cur) => (cur === rowKey ? null : rowKey))
                             }
                           >
                             <span aria-hidden="true">⋮</span>
                           </button>
-                          {openMenuReportId === String(reportId) ? (
+                          {openMenuReportId === rowKey ? (
                             <ul className="dash-row-menu" role="menu" aria-label={`Actions for report ${String(reportId)}`}>
                               <li role="none">
                                 <button
@@ -1172,6 +1200,45 @@ export default function ReportsPage() {
               </tbody>
             </table>
           </div>
+          {historyRows.length > 0 ? (
+            <div className="dash-pagination">
+              <label className="dash-pagination-rows">
+                <select
+                  className="dash-pagination-rows-select"
+                  value={String(historyPageSize)}
+                  onChange={(e) =>
+                    setHistoryPageSize(/** @type {10 | 50 | 100} */ (Number(e.target.value)))
+                  }
+                  aria-label="Rows per page"
+                >
+                  <option value="10">10 rows</option>
+                  <option value="50">50 rows</option>
+                  <option value="100">100 rows</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                className="dash-btn dash-btn--ghost dash-btn--sm"
+                disabled={safeHistoryPage <= 1}
+                onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                aria-label="Previous page"
+              >
+                Previous
+              </button>
+              <span className="dash-pagination-info">
+                Page {safeHistoryPage} of {totalHistoryPages}
+              </span>
+              <button
+                type="button"
+                className="dash-btn dash-btn--ghost dash-btn--sm"
+                disabled={safeHistoryPage >= totalHistoryPages}
+                onClick={() => setHistoryPage((p) => Math.min(totalHistoryPages, p + 1))}
+                aria-label="Next page"
+              >
+                Next
+              </button>
+            </div>
+          ) : null}
           </div>
         )}
       </section>
@@ -1182,14 +1249,14 @@ export default function ReportsPage() {
           onDownloadPdf={() =>
             void handleDownloadPdf(
               normalizeReportRecord(detailModalRow),
-              String(detailModalRow.report_id ?? detailModalRow.id ?? "report"),
+              getReportDisplayId(detailModalRow),
               detailModalRow,
             )
           }
           onDownloadCsv={() =>
             void handleDownloadCsv(
               normalizeReportRecord(detailModalRow),
-              String(detailModalRow.report_id ?? detailModalRow.id ?? "report"),
+              getReportDisplayId(detailModalRow),
               detailModalRow,
             )
           }
@@ -1227,7 +1294,7 @@ function ReportDetailsModal({ row, onClose, onDownloadPdf, onDownloadCsv }) {
           </p>
           <p>
             <span className="reports-detail-meta-label">Report ID</span>
-            <span className="reports-detail-meta-value dash-mono">{String(row.report_id ?? row.id ?? "—")}</span>
+            <span className="reports-detail-meta-value dash-mono">{getReportDisplayId(row)}</span>
           </p>
           <p>
             <span className="reports-detail-meta-label">Type</span>

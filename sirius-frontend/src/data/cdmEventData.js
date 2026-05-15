@@ -42,7 +42,7 @@ export function getEventDisplayFields(latest) {
   const candidates = [
     {
       key: "tca",
-      label: "TCA (UTC)",
+      label: "TCA",
       value: toIso(latest.tca),
       format: (v) => formatUtc(v),
     },
@@ -215,6 +215,49 @@ export async function fetchAllCdmRecords(userId) {
 }
 
 /**
+ * Whether the user can see at least one `source_type: actual` CDM row
+ * (same ownership rules as {@link fetchAllCdmRecords}).
+ * @param {string} [userId]
+ * @returns {Promise<boolean>}
+ */
+export async function userHasAnyVisibleCdmRecords(userId) {
+  if (!userId) return false;
+
+  const { data: ownRows, error: errOwn } = await supabase
+    .from("cdm_records")
+    .select("id")
+    .eq("source_type", "actual")
+    .eq("created_by", userId)
+    .limit(1);
+  if (errOwn) throw errOwn;
+  if (Array.isArray(ownRows) && ownRows.length > 0) return true;
+
+  const { data: uploads, error: errUploads } = await supabase
+    .from("cdm_uploads")
+    .select("id")
+    .eq("uploaded_by", userId);
+  if (errUploads) throw errUploads;
+  const uploadIds = (uploads ?? [])
+    .map((u) => /** @type {{ id?: unknown }} */ (u).id)
+    .filter((id) => id != null);
+  if (!uploadIds.length) return false;
+
+  const chunkSize = 500;
+  for (let i = 0; i < uploadIds.length; i += chunkSize) {
+    const chunk = uploadIds.slice(i, i + chunkSize);
+    const { data: linked, error: errLinked } = await supabase
+      .from("cdm_records")
+      .select("id")
+      .eq("source_type", "actual")
+      .in("upload_id", chunk)
+      .limit(1);
+    if (errLinked) throw errLinked;
+    if (Array.isArray(linked) && linked.length > 0) return true;
+  }
+  return false;
+}
+
+/**
  * @param {string} [userId]
  * @returns {Promise<ReturnType<typeof buildEventSummaries>>}
  */
@@ -230,7 +273,6 @@ export async function fetchEventSummariesFromCdmRecords(userId) {
     groupedEventCount: grouped.size,
     eventSummariesCount: summaries.length,
   };
-  console.info("[CDM events] pipeline", diagnostics);
   return { summaries, diagnostics };
 }
 
@@ -308,17 +350,20 @@ export async function deleteCdmEvents(eventIds) {
 }
 
 /**
+ * Formats an ISO / parseable instant for display in the **user's local timezone**
+ * (browser locale calendar and offset). Stored values remain UTC in the API/DB.
+ *
  * @param {string | null | undefined} iso
  */
 export function formatUtc(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  const h = String(d.getUTCHours()).padStart(2, "0");
-  const min = String(d.getUTCMinutes()).padStart(2, "0");
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
   return `${y}-${m}-${day} ${h}:${min}`;
 }
 
@@ -336,6 +381,113 @@ export function formatProbability(pc) {
  * @param {Array<Record<string, unknown>>} rows
  * @param {string} [downloadFilename] e.g. `selected-cdm-events.csv`
  */
+/** Prefer these columns first in CDM row exports (remaining keys are sorted A–Z). */
+const CDM_CSV_COLUMN_PRIORITY = [
+  "event_id",
+  "cdm_code",
+  "creation_date",
+  "tca",
+  "collision_probability",
+  "miss_distance",
+  "relative_speed",
+];
+
+/** Omitted from dashboard CDM exports (noise / internal identifiers). */
+const CDM_CSV_EXCLUDED_KEYS = new Set([
+  "id",
+  "upload_id",
+  "uploaded_by",
+  "validation_errors_count",
+  "validation_status",
+]);
+
+/**
+ * @param {Record<string, unknown>} row
+ * @returns {Record<string, unknown>}
+ */
+function flattenCdmRecordForCsv(row) {
+  if (!row || typeof row !== "object") return {};
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  for (const [k, v] of Object.entries(row)) {
+    if (k === "upload") continue;
+    if (CDM_CSV_EXCLUDED_KEYS.has(k)) continue;
+    out[k] = v;
+  }
+  for (const [k, v] of Object.entries(out)) {
+    if (v instanceof Date) {
+      out[k] = v.toISOString();
+    } else if (v != null && typeof v === "object") {
+      out[k] = JSON.stringify(v);
+    }
+  }
+  return out;
+}
+
+/**
+ * @param {string[]} keys
+ */
+function sortCdmCsvHeaders(keys) {
+  const set = new Set(keys);
+  const ordered = [];
+  for (const p of CDM_CSV_COLUMN_PRIORITY) {
+    if (set.has(p)) ordered.push(p);
+  }
+  const rest = [...set].filter((k) => !ordered.includes(k)).sort((a, b) => a.localeCompare(b));
+  return [...ordered, ...rest];
+}
+
+/**
+ * Fetch all CDM rows for the given events (same visibility rules as the dashboard) and download CSV.
+ * @param {string[]} eventIds
+ * @param {string} userId
+ * @param {string} [downloadFilename]
+ * @returns {Promise<{ rowCount: number, eventCount: number }>}
+ */
+export async function exportSelectedEventsCdmsToCsv(eventIds, userId, downloadFilename) {
+  const ids = [...new Set(eventIds.map((id) => String(id).trim()).filter(Boolean))];
+  if (!ids.length) return { rowCount: 0, eventCount: 0 };
+
+  const batches = await Promise.all(ids.map((id) => fetchCdmsForEvent(id, userId)));
+  /** @type {Record<string, unknown>[]} */
+  const flatRows = [];
+  for (const batch of batches) {
+    for (const row of batch) {
+      flatRows.push(flattenCdmRecordForCsv(row));
+    }
+  }
+
+  if (!flatRows.length) {
+    throw new Error("No CDM rows found for the selected events.");
+  }
+
+  /** @type {Set<string>} */
+  const keySet = new Set();
+  for (const r of flatRows) {
+    Object.keys(r).forEach((k) => keySet.add(k));
+  }
+  const header = sortCdmCsvHeaders([...keySet]);
+
+  const escapeCell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = [header.map((h) => escapeCell(h)).join(",")];
+  for (const r of flatRows) {
+    lines.push(header.map((h) => escapeCell(r[h])).join(","));
+  }
+
+  const blob = new Blob([lines.join("\n")], {
+    type: "text/csv;charset=utf-8;",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const defaultName = `sirius-cdm-rows-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = downloadFilename?.trim() || defaultName;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  return { rowCount: flatRows.length, eventCount: ids.length };
+}
+
 export function exportEventSummariesToCsv(rows, downloadFilename) {
   const header = [
     "event_id",

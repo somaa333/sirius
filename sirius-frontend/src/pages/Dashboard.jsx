@@ -63,10 +63,6 @@ export default function Dashboard() {
         fetchDashboardWeeklyTrendLines(user.id).catch(() => null),
       ]);
       const { summaries, diagnostics } = summaryPack;
-      console.info("[Dashboard] raw fetched records count:", diagnostics.rawFetchedCount);
-      console.info("[Dashboard] valid records after cleanup:", diagnostics.validRecordsCount);
-      console.info("[Dashboard] grouped event count:", diagnostics.groupedEventCount);
-      console.info("[Dashboard] event summaries count:", diagnostics.eventSummariesCount);
       setActualEventsFromDb(summaries);
       setActualEventsDiagnostics(diagnostics);
       setActualEventsError(null);
@@ -151,10 +147,6 @@ export default function Dashboard() {
     if (!first || !last) return;
     setDateStart(first);
     setDateEnd(last);
-    console.info("[Dashboard] adjusted date range to real CDM data", {
-      dateStart: first,
-      dateEnd: last,
-    });
   }, [actualEventsFromDb, dateStart, dateEnd]);
 
   const kpis = useMemo(() => {
@@ -264,12 +256,17 @@ export default function Dashboard() {
   return (
     <>
       <DashboardPageLayout title="Dashboard">
-        <DashboardFilters
-          dateStart={dateStart}
-          dateEnd={dateEnd}
-          onDateStartChange={setDateStart}
-          onDateEndChange={setDateEnd}
-        />
+        <section id="dashboard-overview" aria-label="CDMs overview">
+          <DashboardFilters
+            dateStart={dateStart}
+            dateEnd={dateEnd}
+            onDateStartChange={setDateStart}
+            onDateEndChange={setDateEnd}
+          />
+
+          <section className="dash-overview-head" aria-label="CDMs overview section heading">
+            <p className="dash-overview-label">CDMs Overview</p>
+          </section>
 
           <section className="dash-kpi-grid" aria-label="CDM and event KPIs">
             <KpiCard
@@ -298,7 +295,9 @@ export default function Dashboard() {
             <EventSizeDistributionChart data={eventSizeDistribution} />
             <EventsOverTimeChart data={eventsOverTime} />
           </div>
+        </section>
 
+        <section id="cdm-events-table" aria-label="CDM events">
           <EventsTable
             events={filteredEventSummaries}
             cdmCountOptions={cdmCountOptions}
@@ -309,6 +308,7 @@ export default function Dashboard() {
             onRefreshAfterMutations={loadActualCdmData}
             loading={actualEventsLoading}
             error={actualEventsError}
+            userId={user.id}
             emptyMessage={buildEventEmptyStateMessage(
               actualEventsDiagnostics,
               filteredEventSummaries.length,
@@ -319,7 +319,7 @@ export default function Dashboard() {
               cdmCountFilter,
             )}
           />
-
+        </section>
       </DashboardPageLayout>
     </>
   );
