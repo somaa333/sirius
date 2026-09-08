@@ -2,7 +2,7 @@
 
 # SIRIUS
 
-### AI-Driven Decision Process Framework for Early Maneuver Planning in Satellite Collision Avoidance
+
 
 **A full-stack, uncertainty-aware decision-support platform for satellite conjunction management.**
 
