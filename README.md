@@ -6,7 +6,7 @@
 
 **A full-stack, uncertainty-aware decision-support platform for satellite conjunction management.**
 
-[Live Demo](https://sirius-ecru.vercel.app/) · [GitHub Repository](https://github.com/somaa333/sirius)
+[Live Demo](https://sirius-ecru.vercel.app/)
 
 **Computer Science Graduation Project — King Abdulaziz University**
 
@@ -263,9 +263,9 @@ The system is intended as a research prototype exploring how AI can assist human
 **Department of Computer Science — King Abdulaziz University**
 
 **Project Members**
-- Amirah Manyur Almutairi
-- Jana Ali Redaini
-- Rana AbdlaZiz Alzahrani
+- [Amirah Manyur Almutairi](https://github.com/avmera)
+- [Jana Ali Redaini](https://github.com/somaa333)
+- [Rana AbdlaZiz Alzahrani](https://github.com/ranaAziz9)
 
 **Supervisor**
 - Mai Fadel
@@ -286,8 +286,6 @@ No open-source license is currently granted for this repository. Please contact 
 
 <div align="center">
 
-**SIRIUS — AI-Assisted Decision Support for Satellite Collision Avoidance**
 
-[Live Demo](https://sirius-ecru.vercel.app/)
 
 </div>
