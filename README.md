@@ -228,7 +228,6 @@ sirius/
 │   ├── src/
 │   ├── supabase/
 │   ├── worker/
-│   ├── .env.example
 │   └── README.md
 │
 └── README.md
