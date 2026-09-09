@@ -12,6 +12,9 @@
 
 </div>
 
+> **Demo Access**  
+> A shared demonstration account is available for reviewers, recruiters, and researchers who would like to explore the full SIRIUS workflow. Please contact one of the project members for access credentials.
+
 ---
 
 ## Overview
