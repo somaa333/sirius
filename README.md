@@ -29,7 +29,6 @@ SIRIUS enables operators to:
 - quantify model confidence and predictive uncertainty,
 - explain model decisions using feature attribution,
 - recommend **Wait** or **Maneuver**,
-- visualize event evolution and analysis results,
 - and generate downloadable reports.
 
 > **Demo note:** The deployed application is available for demonstration. Some features require an authorized Operator or Administrator account.
